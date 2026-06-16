@@ -13,9 +13,10 @@ UI awalnya diekspor dari [v0 net-tools-dashboard](https://v0.app/chat/net-tools-
 | Area | What you get |
 |------|----------------|
 | **Nginx Management** | Health check via SSH, security scan, upgrade jobs, PDF reports, Nginx UI proxy (sites, certs, metrics), interactive shell (WebSocket). |
-| **Resource Pool** | Central device inventory — firewalls, servers, connectors; per-device dataset bindings (CSV import or live API). |
+| **Resource Pool** | Central device inventory — firewalls, routers, servers, connectors; per-device dataset bindings (CSV import or live API). |
 | **Firewall Management** | Palo Alto explorer: security rules, NAT, static routes, address objects, service objects — search, filter, sort, export CSV, incremental scroll. |
-| **Hybrid data mode** | Import Palo CSV exports today; wire live collectors per dataset when ready. |
+| **Router Management** | MikroTik RouterOS from device inventory — routing table, interfaces, firewall filter/NAT, address lists; live sync via REST or Legacy API. |
+| **Hybrid data mode** | Import Palo CSV exports today; MikroTik datasets sync live per capability when connectors are configured. |
 | **Job history** | Long-running tasks (checks, upgrades, scans) persisted with downloadable reports. |
 
 ### Firewall → Rule Categories
@@ -30,6 +31,17 @@ Per firewall device:
 
 Tables use **incremental scroll** (20 rows per batch) for large datasets.
 
+### Router → Rule Categories
+
+Per router device (from **Device Inventory**, category `router`):
+
+- **Routing Table** — static/dynamic/inactive routes, table filter, export CSV
+- **Interfaces** — physical + logical (vlan, bridge, tunnel, PPP, …); L3 from `ip/address`
+- **Firewall Filter** / **Firewall NAT** — chain/action filters, disabled rule styling
+- **Address Lists** — list name, dynamic/static filter
+
+Same toolbar pattern as Firewall: search, dropdown filters, quick sort, reset, export CSV.
+
 ---
 
 ## Architecture
@@ -40,12 +52,13 @@ Browser  →  net-tools-fe (Next.js, :8080)
             net-tools-be (FastAPI + PostgreSQL, :8090)
                 ↓
          SSH  →  Nginx / network devices
+         REST / Legacy API  →  MikroTik RouterOS (when configured)
 ```
 
 | Layer | Responsibility |
 |-------|------------------|
-| **net-tools-fe** | UI, API routes, Palo CSV parsers, Resource Pool, Firewall, Nginx modules. |
-| **net-tools-be** | Device inventory, jobs, dataset storage, WebSocket shell (dev: port `8090`). |
+| **net-tools-fe** | UI, API routes, Palo CSV parsers, Resource Pool, Firewall, Router, Nginx modules. |
+| **net-tools-be** | Device inventory, jobs, dataset storage, MikroTik collectors, WebSocket shell (dev: port `8090`). |
 | **SSH** | Remote checks and upgrades (VPN to prod IPs required). |
 
 ---
@@ -56,6 +69,8 @@ Browser  →  net-tools-fe (Next.js, :8080)
 net-tools/
 ├── README.md
 ├── .gitignore
+├── scripts/
+│   └── git-push.sh           # manual add → commit → push (no co-author injection)
 ├── net-tools-fe/             # Frontend (Next.js, :8080)
 │   ├── package.json
 │   ├── .env.example
@@ -155,6 +170,7 @@ rm -rf .next && npm run dev -- --port 8080 --hostname 0.0.0.0 --webpack
 | Overview | `/` | Live |
 | Resource Pool | `/resource-pool/*` | Live (inventory, types, connectors, keychain) |
 | Firewall | `/firewall` | Live (CSV/API datasets) |
+| Router | `/router` | Live (MikroTik from inventory + live sync) |
 | Nginx Management | `/nginx/*` | Live (wired to API) |
 | IP Checker | `/ip-checker` | Live |
 | DNS | `/dns/*` | UI scaffold |
@@ -180,12 +196,33 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 
 ---
 
+## Router datasets (MikroTik RouterOS)
+
+**Resource Pool → Data Connectors** defines *how* to reach a device (MikroTik REST HTTP/HTTPS, or Legacy API TCP/TLS). **Device Type** picks connectors first, then capability keys. **Device Inventory** holds IP, credentials, and per-dataset bindings.
+
+Live sync: **Device Overview → Sync** (per dataset) or **Router Management → Sync** — calls `POST /api/network-devices/{id}/sync-dataset` with `{ "capability_key": "…" }`.
+
+| Capability key | REST resource | Legacy API |
+|----------------|---------------|------------|
+| `routing_table` | `GET /rest/ip/route` | `/ip/route/print` |
+| `interfaces` | `GET /rest/interface` + `ip/address` | `/interface/print` + `/ip/address/print` |
+| `firewall_filter` | `GET /rest/ip/firewall/filter` | `/ip/firewall/filter/print` |
+| `firewall_nat` | `GET /rest/ip/firewall/nat` | `/ip/firewall/nat/print` |
+| `address_lists` | `GET /rest/ip/firewall/address-list` | `/ip/firewall/address-list/print` |
+
+**Connector notes:** REST uses HTTP Basic auth. Lab CHR often works on **HTTP :80**; HTTPS needs a trusted cert. Legacy API is **plain TCP :8728** (not HTTP) — `:8729` when TLS is configured.
+
+Mapping code: `net-tools-fe/lib/resource-pool/mikrotik-dataset-api.ts`, `net-tools-be/app/services/mikrotik_*_client.py`.
+
+---
+
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
 | `cd net-tools-fe && npm run dev` | Frontend dev server |
 | `net-tools-be/scripts/dev-api.sh` | Backend API (FastAPI :8090) |
+| `./scripts/git-push.sh "Title"` | Stage, commit, push to `origin/main` |
 | `cd net-tools-fe && npm run build` | Production build |
 | `cd net-tools-fe && npm run start` | Serve production build |
 | `cd net-tools-fe && npm run lint` | ESLint |
@@ -197,7 +234,7 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 | Decision | Rationale |
 |----------|-----------|
 | **Monorepo FE + BE** | Single `net-tools` repo — `net-tools-fe` + `net-tools-be` at equal top level. |
-| **Dataset bindings per device** | Mix CSV import and live connectors — practical for Palo exports today. |
+| **Dataset bindings per device** | Mix CSV import (Palo) and live MikroTik sync per capability — practical migration path. |
 | **Incremental list UI** | Large rule/object tables (750+ security rules, 9k+ objects) stay responsive. |
 | **API route proxy layer** | Next.js `app/api/*` talks to backend API + PostgreSQL. |
 
@@ -208,6 +245,8 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 | Symptom | Check |
 |---------|--------|
 | Empty firewall tabs | Device Overview → import CSV; confirm binding row count & last sync. |
+| Empty router tabs | Device Inventory → router device with MikroTik connector + credentials → Sync on Device Overview or Router Management. |
+| MikroTik sync fails | REST: HTTP :80 vs HTTPS cert; Legacy API: TCP :8728 (not HTTP). Check `connector_auth` on the device record. |
 | API connection refused | Backend API running on `:8090`, check `NETTOOLS_API_URL` in `net-tools-fe/.env.local`. |
 | Stale UI after code change | `rm -rf net-tools-fe/.next` and restart dev. |
 | CORS errors | Add UI origin to backend API `allow_origins` config. |
@@ -219,6 +258,8 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 
 - [ ] Auth (login / session / RBAC)
 - [ ] Live Palo Alto API collectors (beyond CSV import)
+- [x] MikroTik REST + Legacy API live sync (routing, interfaces, firewall, address lists)
+- [ ] Scheduled polling for MikroTik connectors (`poll_mode: interval`)
 - [ ] Wire DNS / IPAM / Net-Mon modules to backend
 - [ ] CI + container deploy recipe
 
@@ -236,4 +277,4 @@ Internal / organizational use — add explicit license file before public redist
 |-----|-------------|
 | [GitHub — net-tools](https://github.com/arulriyadi/net-tools) | This repository |
 
-**TL;DR:** `git clone` → `net-tools-be/scripts/dev-api.sh` + `cd net-tools-fe && npm run dev -- --port 8080` → import Palo CSV → **Firewall Management**.
+**TL;DR:** `git clone` → `net-tools-be/scripts/dev-api.sh` + `cd net-tools-fe && npm run dev -- --port 8080` → **Firewall Management** (Palo CSV) or **Router Management** (MikroTik live sync from Device Inventory).
