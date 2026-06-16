@@ -69,8 +69,6 @@ Browser  →  net-tools-fe (Next.js, :8080)
 net-tools/
 ├── README.md
 ├── .gitignore
-├── scripts/
-│   └── git-push.sh           # manual add → commit → push (no co-author injection)
 ├── net-tools-fe/             # Frontend (Next.js, :8080)
 │   ├── package.json
 │   ├── .env.example
@@ -222,7 +220,6 @@ Mapping code: `net-tools-fe/lib/resource-pool/mikrotik-dataset-api.ts`, `net-too
 |---------|-------------|
 | `cd net-tools-fe && npm run dev` | Frontend dev server |
 | `net-tools-be/scripts/dev-api.sh` | Backend API (FastAPI :8090) |
-| `./scripts/git-push.sh "Title"` | Stage, commit, push to `origin/main` |
 | `cd net-tools-fe && npm run build` | Production build |
 | `cd net-tools-fe && npm run start` | Serve production build |
 | `cd net-tools-fe && npm run lint` | ESLint |

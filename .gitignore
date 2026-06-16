@@ -127,6 +127,9 @@ docs/mikrotik-lab-verification.md
 # Lab / smoke-test scripts (default IP & credentials — local only)
 net-tools-be/scripts/test-*.py
 
+# Local git workflow helpers (personal push script — do not push)
+/scripts/
+
 # --- Python backend ----------------------------------------------------------
 net-tools-be/.venv/
 net-tools-be/**/__pycache__/
