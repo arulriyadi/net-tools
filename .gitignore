@@ -1,0 +1,116 @@
+# =============================================================================
+# Net-Tools — keep secrets & local runtime artifacts out of Git
+# =============================================================================
+
+# --- Environment & secrets (never commit) ------------------------------------
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.ppk
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.keystore
+*.jks
+
+secrets/
+credentials/
+**/ssh-keys/
+**/private-keys/
+/opt/nettools/
+
+# --- Local data (exports, reports, imports may contain prod config) ----------
+data/
+imports/
+exports/
+dumps/
+backups/
+*.sql
+*.sql.gz
+*.dump
+
+# Palo / network exports (keep outside repo — e.g. Network-Jabar/)
+*.csv
+*.pdf
+
+# --- Dependencies & build output -------------------------------------------
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+.next/
+out/
+build/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# --- Logs & debug ------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# --- Testing / coverage ------------------------------------------------------
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# --- OS & editors ------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# --- Deploy / hosting --------------------------------------------------------
+.vercel/
+.netlify/
+.snowflake/
+
+# --- v0 export artifacts (legacy) ------------------------------------------
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+.v0-trash/
+
+# --- Misc --------------------------------------------------------------------
+*.pid
+*.seed
+*.pid.lock
+.cache/
+.temp/
+tmp/
+temp/
