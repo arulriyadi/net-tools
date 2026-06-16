@@ -12,7 +12,7 @@ pip install -q -r requirements.txt
 
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  echo "Created backend/.env from .env.example"
+  echo "Created net-tools-be/.env from .env.example"
 fi
 
 exec python3 -m uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT:-8090}" --reload

@@ -32,10 +32,10 @@ imports/
 exports/
 dumps/
 backups/
-backend/data/reports/*
-!backend/data/reports/.gitkeep
-backend/data/ssh-keys/*
-!backend/data/ssh-keys/.gitkeep
+net-tools-be/data/reports/*
+!net-tools-be/data/reports/.gitkeep
+net-tools-be/data/ssh-keys/*
+!net-tools-be/data/ssh-keys/.gitkeep
 *.sql
 *.sql.gz
 *.dump
@@ -122,9 +122,9 @@ temp/
 scripts/git-push.sh
 
 # --- Python backend ----------------------------------------------------------
-backend/.venv/
-backend/**/__pycache__/
-backend/**/*.py[cod]
-backend/.pytest_cache/
-backend/.mypy_cache/
-backend/**/*.egg-info/
+net-tools-be/.venv/
+net-tools-be/**/__pycache__/
+net-tools-be/**/*.py[cod]
+net-tools-be/.pytest_cache/
+net-tools-be/.mypy_cache/
+net-tools-be/**/*.egg-info/

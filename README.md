@@ -35,17 +35,17 @@ Tables use **incremental scroll** (20 rows per batch) for large datasets.
 ## Architecture
 
 ```
-Browser  →  Net-Tools (Next.js, :8080)
+Browser  →  net-tools-fe (Next.js, :8080)
                 ↓  app/api/*
-            API + PostgreSQL (:8090)
+            net-tools-be (FastAPI + PostgreSQL, :8090)
                 ↓
          SSH  →  Nginx / network devices
 ```
 
 | Layer | Responsibility |
 |-------|------------------|
-| **Net-Tools** (this repo) | UI, API routes, Palo CSV parsers, Resource Pool, Firewall, Nginx modules. |
-| **API + PostgreSQL** | Device inventory, jobs, dataset storage, WebSocket shell (dev: port `8090`). |
+| **net-tools-fe** | UI, API routes, Palo CSV parsers, Resource Pool, Firewall, Nginx modules. |
+| **net-tools-be** | Device inventory, jobs, dataset storage, WebSocket shell (dev: port `8090`). |
 | **SSH** | Remote checks and upgrades (VPN to prod IPs required). |
 
 ---
@@ -55,19 +55,20 @@ Browser  →  Net-Tools (Next.js, :8080)
 ```
 net-tools/
 ├── README.md
-├── package.json              # Frontend (Next.js)
-├── .env.example              # Frontend env template
-├── backend/                  # API (FastAPI + PostgreSQL)
-│   ├── app/
-│   ├── requirements.txt
+├── .gitignore
+├── net-tools-fe/             # Frontend (Next.js, :8080)
+│   ├── package.json
 │   ├── .env.example
-│   ├── scripts/dev-api.sh
-│   └── data/
-├── app/                      # Next.js pages + API route proxies
-├── components/
-├── lib/
-├── scripts/
-└── hooks/
+│   ├── app/
+│   ├── components/
+│   ├── lib/
+│   └── scripts/
+└── net-tools-be/             # Backend (FastAPI + PostgreSQL, :8090)
+    ├── requirements.txt
+    ├── .env.example
+    ├── app/
+    ├── scripts/dev-api.sh
+    └── data/
 ```
 
 ---
@@ -97,9 +98,10 @@ git clone git@github.com:arulriyadi/net-tools.git
 cd net-tools
 ```
 
-### 2. Configure
+### 2. Configure frontend
 
 ```bash
+cd net-tools-fe
 cp .env.example .env.local
 ```
 
@@ -112,7 +114,7 @@ cp .env.example .env.local
 ### 3. Backend API
 
 ```bash
-cd backend
+cd net-tools-be
 cp .env.example .env    # edit DATABASE_URL if needed
 chmod +x scripts/dev-api.sh
 ./scripts/dev-api.sh
@@ -123,7 +125,7 @@ Health: `http://127.0.0.1:8090/health`
 ### 4. Frontend UI
 
 ```bash
-cd ..   # repo root
+cd net-tools-fe
 npm install
 npm run dev -- --port 8080 --hostname 0.0.0.0 --webpack
 ```
@@ -134,12 +136,13 @@ Open: **http://localhost:8080**
 
 | Service | Path | URL |
 |---------|------|-----|
-| API | `backend/` | `http://192.168.139.166:8090` |
-| UI | repo root | `http://192.168.139.166:8080` |
+| API | `net-tools-be/` | `http://192.168.139.166:8090` |
+| UI | `net-tools-fe/` | `http://192.168.139.166:8080` |
 
 After frontend code changes:
 
 ```bash
+cd net-tools-fe
 rm -rf .next && npm run dev -- --port 8080 --hostname 0.0.0.0 --webpack
 ```
 
@@ -181,11 +184,11 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Frontend dev server |
-| `backend/scripts/dev-api.sh` | Backend API (FastAPI :8090) |
-| `npm run build` | Production build |
-| `npm run start` | Serve production build |
-| `npm run lint` | ESLint |
+| `cd net-tools-fe && npm run dev` | Frontend dev server |
+| `net-tools-be/scripts/dev-api.sh` | Backend API (FastAPI :8090) |
+| `cd net-tools-fe && npm run build` | Production build |
+| `cd net-tools-fe && npm run start` | Serve production build |
+| `cd net-tools-fe && npm run lint` | ESLint |
 
 ---
 
@@ -193,7 +196,7 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 
 | Decision | Rationale |
 |----------|-----------|
-| **Monorepo FE + BE** | Single `net-tools` folder — Next.js UI + FastAPI backend. |
+| **Monorepo FE + BE** | Single `net-tools` repo — `net-tools-fe` + `net-tools-be` at equal top level. |
 | **Dataset bindings per device** | Mix CSV import and live connectors — practical for Palo exports today. |
 | **Incremental list UI** | Large rule/object tables (750+ security rules, 9k+ objects) stay responsive. |
 | **API route proxy layer** | Next.js `app/api/*` talks to backend API + PostgreSQL. |
@@ -205,8 +208,8 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 | Symptom | Check |
 |---------|--------|
 | Empty firewall tabs | Device Overview → import CSV; confirm binding row count & last sync. |
-| API connection refused | Backend API running on `:8090`, check `NETTOOLS_API_URL` in `.env.local`. |
-| Stale UI after code change | `rm -rf .next` and restart dev. |
+| API connection refused | Backend API running on `:8090`, check `NETTOOLS_API_URL` in `net-tools-fe/.env.local`. |
+| Stale UI after code change | `rm -rf net-tools-fe/.next` and restart dev. |
 | CORS errors | Add UI origin to backend API `allow_origins` config. |
 | SSH check fails | VPN route, key path, server credentials on record. |
 
@@ -233,4 +236,4 @@ Internal / organizational use — add explicit license file before public redist
 |-----|-------------|
 | [GitHub — net-tools](https://github.com/arulriyadi/net-tools) | This repository |
 
-**TL;DR:** `git clone` → `backend/scripts/dev-api.sh` + `npm run dev -- --port 8080` → import Palo CSV → **Firewall Management**.
+**TL;DR:** `git clone` → `net-tools-be/scripts/dev-api.sh` + `cd net-tools-fe && npm run dev -- --port 8080` → import Palo CSV → **Firewall Management**.

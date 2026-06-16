@@ -1,6 +1,6 @@
 /**
  * One-time helper: import Palo CSV exports into a network device's dataset_data.
- * Usage (from net-tools):
+ * Usage (from net-tools-fe):
  *   npx tsx scripts/seed-firewall-dataset.ts <device-id>
  */
 import { readFileSync } from "node:fs"
