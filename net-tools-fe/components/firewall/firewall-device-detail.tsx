@@ -1064,7 +1064,16 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
               </tbody>
             </table>
           ) : (
-            <table className="w-max text-sm">
+            <table className="w-full table-fixed text-sm">
+              <colgroup>
+                <col className="w-12" />
+                <col />
+                <col className="w-[12%]" />
+                <col className="w-[10%]" />
+                <col className="w-[12%]" />
+                <col className="w-[18%]" />
+                <col className="w-[10%]" />
+              </colgroup>
               <thead className="sticky top-0 z-10 bg-muted/40 text-xs uppercase text-muted-foreground backdrop-blur-sm">
                 <tr>
                   {(
@@ -1100,8 +1109,8 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
                     <td className="px-3 py-2 text-xs text-muted-foreground">{s.location || "—"}</td>
                     <td className="px-3 py-2"><ServiceProtocolBadge protocol={s.protocol} /></td>
                     <td className="px-3 py-2 font-mono text-xs">{s.destinationPort || "—"}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{s.tags || "—"}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-xs text-muted-foreground break-words">{s.tags || "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
                       {s.isPredefined ? (
                         <PredefinedBadge predefined />
                       ) : (
