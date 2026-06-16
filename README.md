@@ -249,34 +249,6 @@ Internal / organizational use — add explicit license file before public redist
 
 ---
 
-## Git push (manual)
-
-Use **`scripts/git-push.sh`** from your terminal (not Cursor Agent) so commits stay under your account only — no `Co-authored-by: Cursor`.
-
-```bash
-# Preview changes
-./scripts/git-push.sh --status
-
-# Dry run
-./scripts/git-push.sh --dry-run "Your commit title"
-
-# Add, commit, push
-./scripts/git-push.sh "Add Service List tab to firewall detail"
-./scripts/git-push.sh "Fix export CSV" "Optional second paragraph for body."
-```
-
-First time on a fresh GitHub repo:
-
-```bash
-git init && git branch -M main
-git remote add origin https://github.com/arulriyadi/net-tools.git
-./scripts/git-push.sh "Initial commit"
-```
-
-Ask the assistant for a suggested commit message + file list; you run the script locally.
-
----
-
 ## Links
 
 | Doc | Description |
