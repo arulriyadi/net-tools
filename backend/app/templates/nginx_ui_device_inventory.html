@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}Device Inventory · nginx-ui-management · NetTools{% endblock %}
+{% block page_title %}Device Inventory{% endblock %}
+{% block page_subtitle %}Kelola server/device nginx-ui — status konektivitas periodik, edit, dan hapus inventory.{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="card-header">
+    <h2>Device Inventory</h2>
+    <button class="btn-secondary" onclick="openAddModal()">+ Add Inventory</button>
+  </div>
+  <p class="card-intro">Status konektivitas dicek periodik ke nginx-ui API / host. Kelola device dari sini — tanpa run check manual.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Hostname</th>
+        <th>IP</th>
+        <th>Group</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in servers %}
+      <tr
+        data-id="{{ s.id }}"
+        data-name="{{ s.name }}"
+        data-hostname="{{ s.hostname }}"
+        data-ip="{{ s.ip }}"
+        data-group="{{ s.group }}"
+        data-ssh-user="{{ s.ssh_user }}"
+        data-ssh-key="{{ s.ssh_key_path or '' }}"
+        data-notes="{{ s.notes or '' }}"
+      >
+        <td><strong>{{ s.name }}</strong></td>
+        <td>{{ s.hostname }}</td>
+        <td>{{ s.ip }}</td>
+        <td>
+          {% if 'PPDB' in s.group %}
+          <span class="badge ppdb">PPDB</span>
+          {% elif 'SekolahMaung' in s.group or 'Maung' in s.group %}
+          <span class="badge maung">SekolahMaung</span>
+          {% else %}
+          <span class="badge neutral">{{ s.group[:24] }}{% if s.group|length > 24 %}…{% endif %}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if s.ip == '172.32.1.228' %}
+          <span class="badge ok">ONLINE</span>
+          <div class="muted">Checked 2m ago · nginx-ui :9000</div>
+          {% else %}
+          <span class="badge neutral">UNKNOWN</span>
+          <div class="muted">Periodic check pending</div>
+          {% endif %}
+        </td>
+        <td style="width:48px;text-align:right;">
+          <div class="row-menu" id="row-menu-{{ s.id }}">
+            <button type="button" class="kebab-btn" onclick="toggleRowMenu(event, {{ s.id }})" aria-label="Actions">⋯</button>
+            <div class="row-menu-dropdown">
+              <button type="button" class="row-menu-item" onclick="openEditFromRow(this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Edit
+              </button>
+              <button type="button" class="row-menu-item danger" onclick="confirmDeleteFromRow(this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                Delete
+              </button>
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No devices in inventory.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div id="add-modal" class="modal-backdrop" onclick="closeAddModalOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>Add Device Inventory</h3>
+    <form id="add-server-form" class="form-grid" onsubmit="submitAddServer(event)">
+      <label>VM Name *<input name="name" required placeholder="smpb-nginx-prod" /></label>
+      <label>Hostname *<input name="hostname" required placeholder="nginx-ui-spmb-prod" /></label>
+      <label>Private IP *<input name="ip" required placeholder="10.205.35.5" pattern="[0-9.]+" /></label>
+      <label>
+        Group *
+        <input name="group" list="group-options" required placeholder="Nginx PPDB (SPMB)" />
+        <datalist id="group-options">
+          {% for g in group_options %}
+          <option value="{{ g }}"></option>
+          {% endfor %}
+        </datalist>
+      </label>
+      <label>SSH User<input name="ssh_user" value="root" placeholder="root" /></label>
+      <label>
+        SSH Key Path
+        <input name="ssh_key_path" value="{{ default_ssh_key }}" placeholder="Pubkey/jabar/capzs.key" />
+      </label>
+      <label>Notes<textarea name="notes" placeholder="Optional notes"></textarea></label>
+      <div class="form-error" id="add-form-error"></div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" onclick="closeAddModal()">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="edit-modal" class="modal-backdrop" onclick="closeEditModalOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>Edit Device</h3>
+    <form id="edit-server-form" class="form-grid" onsubmit="submitEditServer(event)">
+      <input type="hidden" name="server_id" />
+      <label>VM Name *<input name="name" required /></label>
+      <label>Hostname *<input name="hostname" required /></label>
+      <label>Private IP *<input name="ip" required pattern="[0-9.]+" /></label>
+      <label>
+        Group *
+        <input name="group" list="group-options-edit" required />
+        <datalist id="group-options-edit">
+          {% for g in group_options %}
+          <option value="{{ g }}"></option>
+          {% endfor %}
+        </datalist>
+      </label>
+      <label>SSH User<input name="ssh_user" /></label>
+      <label>SSH Key Path<input name="ssh_key_path" /></label>
+      <label>Notes<textarea name="notes"></textarea></label>
+      <div class="form-error" id="edit-form-error"></div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" onclick="closeEditModal()">Cancel</button>
+        <button type="submit">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openAddModal() {
+    document.getElementById('add-modal').classList.add('open');
+    document.getElementById('add-form-error').textContent = '';
+  }
+  function closeAddModal() {
+    document.getElementById('add-modal').classList.remove('open');
+  }
+  function closeAddModalOnBackdrop(event) {
+    if (event.target.id === 'add-modal') closeAddModal();
+  }
+
+  function openEditFromRow(btn) {
+    const row = btn.closest('tr');
+    openEditModal(
+      row.dataset.id,
+      row.dataset.name,
+      row.dataset.hostname,
+      row.dataset.ip,
+      row.dataset.group,
+      row.dataset.sshUser,
+      row.dataset.sshKey,
+      row.dataset.notes
+    );
+  }
+
+  function confirmDeleteFromRow(btn) {
+    const row = btn.closest('tr');
+    confirmDelete(row.dataset.id, row.dataset.name);
+  }
+
+  function openEditModal(id, name, hostname, ip, group, sshUser, sshKey, notes) {
+    document.querySelectorAll('.row-menu.open').forEach((m) => m.classList.remove('open'));
+    const form = document.getElementById('edit-server-form');
+    form.server_id.value = id;
+    form.name.value = name;
+    form.hostname.value = hostname;
+    form.ip.value = ip;
+    form.group.value = group;
+    form.ssh_user.value = sshUser || 'root';
+    form.ssh_key_path.value = sshKey || '';
+    form.notes.value = notes || '';
+    document.getElementById('edit-form-error').textContent = '';
+    document.getElementById('edit-modal').classList.add('open');
+  }
+  function closeEditModal() {
+    document.getElementById('edit-modal').classList.remove('open');
+  }
+  function closeEditModalOnBackdrop(event) {
+    if (event.target.id === 'edit-modal') closeEditModal();
+  }
+
+  async function submitAddServer(event) {
+    event.preventDefault();
+    const form = event.target;
+    const errEl = document.getElementById('add-form-error');
+    errEl.textContent = '';
+    const payload = {
+      name: form.name.value.trim(),
+      hostname: form.hostname.value.trim(),
+      ip: form.ip.value.trim(),
+      group: form.group.value,
+      ssh_user: form.ssh_user.value.trim() || 'root',
+      ssh_key_path: form.ssh_key_path.value.trim() || null,
+      notes: form.notes.value.trim() || null,
+    };
+    try {
+      const res = await fetch('/api/servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      closeAddModal();
+      location.reload();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  }
+
+  function submitEditServer(event) {
+    event.preventDefault();
+    document.getElementById('edit-form-error').textContent =
+      'Edit API coming soon — UI preview only.';
+  }
+
+  function confirmDelete(id, name) {
+    document.querySelectorAll('.row-menu.open').forEach((m) => m.classList.remove('open'));
+    if (!confirm(`Delete device "${name}" from inventory?`)) return;
+    alert('Delete API coming soon — UI preview only.');
+  }
+</script>
+{% endblock %}

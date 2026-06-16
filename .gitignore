@@ -28,11 +28,14 @@ credentials/
 /opt/nettools/
 
 # --- Local data (exports, reports, imports may contain prod config) ----------
-data/
 imports/
 exports/
 dumps/
 backups/
+backend/data/reports/*
+!backend/data/reports/.gitkeep
+backend/data/ssh-keys/*
+!backend/data/ssh-keys/.gitkeep
 *.sql
 *.sql.gz
 *.dump
@@ -117,3 +120,11 @@ temp/
 
 # --- Local-only (not for GitHub) ---------------------------------------------
 scripts/git-push.sh
+
+# --- Python backend ----------------------------------------------------------
+backend/.venv/
+backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/**/*.egg-info/

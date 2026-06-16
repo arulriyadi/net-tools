@@ -1,0 +1,494 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}Nginx Check{% endblock %}
+{% block page_subtitle %}SSH read-only check, CVE assessment, dan laporan PDF per server.{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="stat-grid nginx-check-stats">
+    <div class="stat-box">
+      <div class="label">Total server</div>
+      <div class="value">{{ nginx_check_stats.total_servers }}</div>
+      <div class="breakdown"><span class="stat-dot muted">di semua namespace</span></div>
+    </div>
+    <div class="stat-box">
+      <div class="label">High risk</div>
+      <div class="value{% if nginx_check_stats.high_risk_count %} stat-warn{% endif %}">{{ nginx_check_stats.high_risk_count }}</div>
+      <div class="breakdown"><span class="stat-dot bad">perlu segera diupgrade</span></div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Open CVEs</div>
+      <div class="value{% if nginx_check_stats.open_cve_count %} stat-warn{% endif %}">{{ nginx_check_stats.open_cve_count }}</div>
+      <div class="breakdown"><span class="stat-dot warn">di {{ nginx_check_stats.open_cve_servers }} server aktif</span></div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Up to date</div>
+      <div class="value stat-ok">{{ nginx_check_stats.up_to_date_count }}</div>
+      <div class="breakdown"><span class="stat-dot ok">versi ≥ {{ nginx_check_stats.stable_target }} stable</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <h2>Server List</h2>
+    <button type="button" class="btn-secondary" onclick="openAddMonitorModal()">+ Add / Monitor Nginx</button>
+  </div>
+  <p class="card-intro">Server yang dimonitor untuk nginx check. Tambah dari Device Inventory via tombol di atas.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Server</th>
+        <th>IP</th>
+        <th>Group</th>
+        <th>Status</th>
+        <th>Risk</th>
+        <th>nginx</th>
+        <th>Last check</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in servers %}
+      {% set last_job = (last_jobs or {}).get(s.id) %}
+      {% set last_ok = (last_checks or {}).get(s.id) %}
+      <tr data-id="{{ s.id }}" data-name="{{ s.name }}" data-last-job="{{ last_job.id if last_job else '' }}">
+        <td>
+          <strong>{{ s.name }}</strong>
+          <div class="muted" style="font-size:.78rem;">{{ s.hostname }}</div>
+        </td>
+        <td>{{ s.ip }}</td>
+        <td>
+          {% if 'PPDB' in s.group %}
+          <span class="badge ppdb">PPDB</span>
+          {% elif 'SekolahMaung' in s.group or 'Maung' in s.group %}
+          <span class="badge maung">SekolahMaung</span>
+          {% else %}
+          <span class="badge neutral">{{ s.group[:18] }}{% if s.group|length > 18 %}…{% endif %}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if not last_job %}
+          <span class="badge neutral">NEVER CHECKED</span>
+          {% elif last_job.status.value == 'failed' %}
+          <span class="badge bad">FAILED</span>
+          {% else %}
+          <span class="badge ok">MONITORED</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if last_ok and last_ok.result and last_ok.result.risk_level %}
+          <span class="risk-{{ last_ok.result.risk_level }}">{{ last_ok.result.risk_level|upper }}</span>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td>{{ last_ok.result.nginx_version if last_ok and last_ok.result else '—' }}</td>
+        <td class="muted">
+          {% if last_job %}{{ last_job.created_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}—{% endif %}
+        </td>
+        <td style="width:48px;text-align:right;">
+          <div class="row-menu" id="srv-row-menu-{{ s.id }}">
+            <button type="button" class="kebab-btn" onclick="toggleRowMenu(event, {{ s.id }}, 'srv-row-menu-')" aria-label="Actions">⋯</button>
+            <div class="row-menu-dropdown">
+              <button type="button" class="row-menu-item" onclick="runCheckFromRow(this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+                Run Check
+              </button>
+              {% if last_job %}
+              <button type="button" class="row-menu-item" onclick="viewJobFromRow(this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                View Result
+              </button>
+              {% endif %}
+              <button type="button" class="row-menu-item danger" onclick="removeMonitorFromRow(this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                Remove
+              </button>
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="muted">Belum ada server dimonitor. Klik <strong>Add / Monitor Nginx</strong> untuk pilih dari Device Inventory.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Recent Check History</h2>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Time (UTC)</th>
+        <th>Server</th>
+        <th>Status</th>
+        <th>Risk</th>
+        <th>nginx</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody id="history-body">
+      {% for j in recent_jobs %}
+      <tr>
+        <td>{{ j.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>{{ j.server.name if j.server else j.server_id }}</td>
+        <td>
+          {% if j.status.value == 'success' %}
+          <span class="badge ok">SUCCESS</span>
+          {% elif j.status.value == 'failed' %}
+          <span class="badge bad">FAILED</span>
+          {% else %}
+          <span class="badge neutral">{{ j.status.value|upper }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if j.result and j.result.risk_level %}
+          <span class="risk-{{ j.result.risk_level }}">{{ j.result.risk_level|upper }}</span>
+          {% else %}-{% endif %}
+        </td>
+        <td>{{ j.result.nginx_version if j.result else '-' }}</td>
+        <td>
+          <button class="link-btn" onclick="viewJob({{ j.id }})">View</button>
+          {% if j.status.value == 'success' %}
+          <a class="link-btn" href="/api/nginx/jobs/{{ j.id }}/report" target="_blank">PDF</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No checks yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>CVE Assessment Log</h2>
+  <p class="card-intro">Auto-triggered saat nginx check risk <strong>HIGH</strong> — bandingkan versi saat ini vs stable/mainline CVE.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Time (UTC)</th>
+        <th>Server</th>
+        <th>Status</th>
+        <th>Risk</th>
+        <th>Version → Target</th>
+        <th>Open CVEs</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in cve_assessments %}
+      {% set open_cves = (a.cve_findings or []) | selectattr('status', 'equalto', 'open') | list %}
+      <tr>
+        <td>{{ a.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>{{ a.server.name if a.server else a.server_id }}</td>
+        <td>
+          {% if a.status.value == 'success' %}
+          <span class="badge ok">SUCCESS</span>
+          {% elif a.status.value == 'failed' %}
+          <span class="badge bad">FAILED</span>
+          {% else %}
+          <span class="badge neutral">{{ a.status.value|upper }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if a.overall_risk %}
+          <span class="risk-{{ a.overall_risk }}">{{ a.overall_risk|upper }}</span>
+          {% else %}-{% endif %}
+        </td>
+        <td>{{ a.current_version or '?' }} → {{ a.target_stable }}</td>
+        <td>{{ open_cves | length }}</td>
+        <td style="width:48px;text-align:right;">
+          <div class="row-menu" id="cve-row-menu-{{ a.id }}">
+            <button type="button" class="kebab-btn" onclick="toggleRowMenu(event, {{ a.id }}, 'cve-row-menu-')" aria-label="Actions">⋯</button>
+            <div class="row-menu-dropdown">
+              <button type="button" class="row-menu-item" onclick="openCveOverview({{ a.id }})">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                View
+              </button>
+              {% if a.status.value == 'success' %}
+              <a class="row-menu-item" href="/api/cve/assessments/{{ a.id }}/report" target="_blank" rel="noopener">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+                PDF
+              </a>
+              {% endif %}
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">No CVE assessments yet. Run check on a server with HIGH risk to trigger.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div id="add-monitor-modal" class="modal-backdrop" onclick="closeAddMonitorOnBackdrop(event)">
+  <div class="modal modal-wide" onclick="event.stopPropagation()">
+    <h3>Add / Monitor Nginx</h3>
+    <p class="card-intro" style="margin-top:-.75rem;">Pilih server dari Device Inventory untuk dimonitor nginx check.</p>
+    <form id="add-monitor-form" onsubmit="submitAddMonitor(event)">
+      <div class="monitor-picker" id="monitor-picker-list">
+        {% for s in available_servers %}
+        <label class="monitor-picker-item">
+          <input type="checkbox" name="server_ids" value="{{ s.id }}" />
+          <span class="monitor-picker-body">
+            <strong>{{ s.name }}</strong>
+            <span class="muted">{{ s.ip }} · {{ s.group }}</span>
+          </span>
+        </label>
+        {% else %}
+        <div class="empty-state" style="padding:1.25rem;">Semua device di inventory sudah dimonitor. Tambah device baru di Device Inventory.</div>
+        {% endfor %}
+      </div>
+      <div class="form-error" id="add-monitor-error"></div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" onclick="closeAddMonitorModal()">Cancel</button>
+        <button type="submit"{% if not available_servers %} disabled{% endif %}>Add to Monitor</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="job-result-modal" class="modal-backdrop" onclick="closeJobResultOnBackdrop(event)">
+  <div class="modal modal-wide" onclick="event.stopPropagation()">
+    <h3>Check Result</h3>
+    <pre id="job-result-body" class="panel" style="margin:0;max-height:360px;overflow:auto;"></pre>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" onclick="closeJobResult()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="cve-overview-modal" class="modal-backdrop" onclick="closeCveOverviewOnBackdrop(event)">
+  <div class="modal modal-wide" onclick="event.stopPropagation()">
+    <h3>CVE Assessment Overview</h3>
+    <div id="cve-overview-loading" class="muted">Loading...</div>
+    <div id="cve-overview-content" style="display:none;">
+      <div class="cve-overview-meta" id="cve-overview-meta"></div>
+      <p class="modal-section-title">Open Findings</p>
+      <ul class="cve-finding-list" id="cve-finding-list"></ul>
+      <div class="cve-recommendation">
+        <h4>Recommended Actions</h4>
+        <div id="cve-recommendation-text"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="closeCveOverview()">Close</button>
+        <a id="cve-overview-pdf" class="btn-secondary" href="#" target="_blank" rel="noopener" style="display:none;text-decoration:none;padding:.55rem 1rem;border-radius:8px;border:1px solid var(--border);font-size:.88rem;">Download PDF</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
+  }
+
+  function closeCveOverview() {
+    document.getElementById('cve-overview-modal').classList.remove('open');
+    document.querySelectorAll('.row-menu.open').forEach((m) => m.classList.remove('open'));
+  }
+  function closeCveOverviewOnBackdrop(event) {
+    if (event.target.id === 'cve-overview-modal') closeCveOverview();
+  }
+
+  function renderCveOverview(data) {
+    const open = (data.cve_findings || []).filter(c => c.status === 'open');
+    const patched = (data.cve_findings || []).filter(c => c.status === 'patched');
+
+    document.getElementById('cve-overview-meta').innerHTML = `
+      <div><span class="label">Server</span><strong>${escapeHtml(data.server_name || data.server_id)}</strong></div>
+      <div><span class="label">Overall risk</span><span class="risk-${escapeHtml(data.overall_risk || 'unknown')}">${escapeHtml((data.overall_risk || 'unknown').toUpperCase())}</span></div>
+      <div><span class="label">Current version</span>${escapeHtml(data.current_version || '-')} <span class="muted">(${escapeHtml(data.current_package || '-')})</span></div>
+      <div><span class="label">Target</span>${escapeHtml(data.target_stable)} stable · ${escapeHtml(data.target_mainline)} mainline</div>
+      <div><span class="label">Open CVEs</span><strong>${open.length}</strong></div>
+      <div><span class="label">Patched (backport)</span>${patched.length}</div>
+    `;
+
+    const listEl = document.getElementById('cve-finding-list');
+    if (!open.length) {
+      listEl.innerHTML = '<li class="cve-finding-item"><div class="cve-detail muted">No open CVE findings.</div></li>';
+    } else {
+      listEl.innerHTML = open.map(c => `
+        <li class="cve-finding-item">
+          <div class="cve-id">${escapeHtml(c.cve_id)} · <span class="risk-high">${escapeHtml(c.severity || 'UNKNOWN')}</span></div>
+          <div class="cve-detail">${escapeHtml(c.module || '-')} — fix in nginx ${escapeHtml(c.fixed_stable || data.target_stable)}</div>
+        </li>
+      `).join('');
+    }
+
+    document.getElementById('cve-recommendation-text').textContent = data.recommendation || 'No recommendation available.';
+
+    const pdfBtn = document.getElementById('cve-overview-pdf');
+    if (data.status === 'success') {
+      pdfBtn.href = `/api/cve/assessments/${data.id}/report`;
+      pdfBtn.style.display = 'inline-flex';
+    } else {
+      pdfBtn.style.display = 'none';
+    }
+
+    document.getElementById('cve-overview-loading').style.display = 'none';
+    document.getElementById('cve-overview-content').style.display = 'block';
+  }
+
+  async function openCveOverview(id) {
+    document.querySelectorAll('.row-menu.open').forEach((m) => m.classList.remove('open'));
+    const modal = document.getElementById('cve-overview-modal');
+    document.getElementById('cve-overview-loading').style.display = 'block';
+    document.getElementById('cve-overview-loading').textContent = 'Loading...';
+    document.getElementById('cve-overview-content').style.display = 'none';
+    modal.classList.add('open');
+    try {
+      const res = await fetch(`/api/cve/assessments/${id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      renderCveOverview(data);
+    } catch (err) {
+      document.getElementById('cve-overview-loading').textContent = `Error: ${err.message}`;
+    }
+  }
+
+  function formatResult(data) {
+    const lines = [
+      `Job ID: ${data.job_id || '-'}`,
+      `Server: ${data.server_name} (${data.ip})`,
+      `Hostname: ${data.hostname || '-'}`,
+      `OS: ${data.os_version || '-'}`,
+      `nginx: ${data.nginx_version || '-'} | package: ${data.nginx_package || '-'}`,
+      `Risk: ${(data.risk_level || 'unknown').toUpperCase()}`,
+      '',
+      'Checks:',
+      ...(data.checks || []).map(c => `  [${c.status.toUpperCase()}] ${c.label}${c.detail ? ' - ' + c.detail : ''}`),
+    ];
+    return lines.join('\n');
+  }
+
+  function openAddMonitorModal() {
+    document.getElementById('add-monitor-modal').classList.add('open');
+    document.getElementById('add-monitor-error').textContent = '';
+  }
+  function closeAddMonitorModal() {
+    document.getElementById('add-monitor-modal').classList.remove('open');
+  }
+  function closeAddMonitorOnBackdrop(event) {
+    if (event.target.id === 'add-monitor-modal') closeAddMonitorModal();
+  }
+
+  async function submitAddMonitor(event) {
+    event.preventDefault();
+    const form = event.target;
+    const errEl = document.getElementById('add-monitor-error');
+    errEl.textContent = '';
+    const ids = [...form.querySelectorAll('input[name="server_ids"]:checked')].map((el) => Number(el.value));
+    if (!ids.length) {
+      errEl.textContent = 'Pilih minimal satu server.';
+      return;
+    }
+    try {
+      const res = await fetch('/api/nginx/monitors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server_ids: ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      closeAddMonitorModal();
+      location.reload();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  }
+
+  function runCheckFromRow(btn) {
+    const row = btn.closest('tr');
+    runCheck(row.dataset.id, row.dataset.name);
+  }
+  function viewJobFromRow(btn) {
+    const row = btn.closest('tr');
+    if (row.dataset.lastJob) viewJob(row.dataset.lastJob);
+  }
+  function removeMonitorFromRow(btn) {
+    const row = btn.closest('tr');
+    removeMonitor(row.dataset.id, row.dataset.name);
+  }
+
+  async function removeMonitor(id, name) {
+    document.querySelectorAll('.row-menu.open').forEach((m) => m.classList.remove('open'));
+    if (!confirm(`Hapus "${name}" dari monitor nginx check?`)) return;
+    try {
+      const res = await fetch(`/api/nginx/monitors/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || res.statusText);
+      }
+      location.reload();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  function closeJobResult() {
+    document.getElementById('job-result-modal').classList.remove('open');
+  }
+  function closeJobResultOnBackdrop(event) {
+    if (event.target.id === 'job-result-modal') closeJobResult();
+  }
+
+  async function runCheck(id, name) {
+    document.querySelectorAll('.row-menu.open').forEach((m) => m.classList.remove('open'));
+    const body = document.getElementById('job-result-body');
+    document.getElementById('job-result-modal').classList.add('open');
+    body.textContent = `Running nginx check on ${name}...`;
+    try {
+      const res = await fetch(`/api/nginx/check/${id}`, { method: 'POST' });
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(text || res.statusText || 'Invalid server response');
+      }
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      body.textContent = formatResult(data);
+      setTimeout(() => location.reload(), 1200);
+    } catch (err) {
+      body.textContent = `Error: ${err.message}`;
+    }
+  }
+
+  async function viewJob(jobId) {
+    document.querySelectorAll('.row-menu.open').forEach((m) => m.classList.remove('open'));
+    const body = document.getElementById('job-result-body');
+    document.getElementById('job-result-modal').classList.add('open');
+    body.textContent = 'Loading job detail...';
+    try {
+      const res = await fetch(`/api/nginx/jobs/${jobId}`);
+      const job = await res.json();
+      if (!res.ok) throw new Error(job.detail || res.statusText);
+      if (job.result) {
+        body.textContent = formatResult(job.result);
+      } else {
+        body.textContent = `Job #${job.id} FAILED\n\n${job.log || 'No log'}`;
+      }
+    } catch (err) {
+      body.textContent = `Error: ${err.message}`;
+    }
+  }
+</script>
+{% endblock %}

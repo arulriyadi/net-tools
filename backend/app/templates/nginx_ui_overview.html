@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}Connections · nginx-ui-management · NetTools{% endblock %}
+{% block page_title %}Connections{% endblock %}
+{% block page_subtitle %}Koneksi nginx-ui API, sites, dan status nginx per server.{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="stat-grid">
+    <div class="stat-box">
+      <div class="label">Registered servers</div>
+      <div class="value">{{ servers|length }}</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Nginx UI configured</div>
+      <div class="value">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">API connected</div>
+      <div class="value muted">—</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Sites synced</div>
+      <div class="value muted">—</div>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <h2>Nginx UI Connections</h2>
+    <button class="btn-secondary" onclick="openConnectionModal()">+ Add Connection</button>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Server</th>
+        <th>IP</th>
+        <th>Nginx UI URL</th>
+        <th>User</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in servers %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td>{{ s.ip }}</td>
+        <td>
+          {% if s.ip == '172.32.1.228' %}
+          <span class="muted">http://{{ s.ip }}:9000</span>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td><span class="muted">—</span></td>
+        <td><span class="badge neutral">NOT CONFIGURED</span></td>
+        <td>
+          <button disabled title="Coming soon">Test API</button>
+          <button class="link-btn" disabled>Load Sites</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No servers in inventory.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <h2>Sites (from nginx-ui)</h2>
+    <span class="preview-banner">Preview data</span>
+  </div>
+  <p class="card-intro">Contoh dari lab VM <strong>172.32.1.228</strong> — akan di-load otomatis setelah API client siap.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Proxy Target</th>
+        <th>Status</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>vpn-dev.lab.local</td>
+        <td>172.32.1.226</td>
+        <td><span class="badge ok">Enabled</span></td>
+        <td class="muted">preview</td>
+      </tr>
+      <tr>
+        <td>vpn-stg.lab.local</td>
+        <td>172.32.1.227</td>
+        <td><span class="badge ok">Enabled</span></td>
+        <td class="muted">preview</td>
+      </tr>
+      <tr>
+        <td>pve.lab.local</td>
+        <td>172.32.1.2:8006</td>
+        <td><span class="badge ok">Enabled</span></td>
+        <td class="muted">preview</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>API Response</h2>
+  <div id="nui-result" class="panel">Pilih server dan klik "Test API" setelah backend integration ready.
+
+Expected flow:
+  1. POST /api/login → JWT token
+  2. GET /api/node → OS + nginx version
+  3. GET /api/nginx/status → running state
+  4. GET /api/sites → proxy list</div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div id="connection-modal" class="modal-backdrop" onclick="closeConnectionModalOnBackdrop(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>Add Nginx UI Connection</h3>
+    <form id="connection-form" class="form-grid" onsubmit="submitConnection(event)">
+      <label>
+        Server *
+        <select name="server_id" required>
+          <option value="">— pilih server —</option>
+          {% for s in servers %}
+          <option value="{{ s.id }}">{{ s.name }} ({{ s.ip }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Nginx UI URL *
+        <input name="nginx_ui_url" required placeholder="http://172.32.1.228:9000" />
+        <span class="muted">Base URL tanpa trailing slash</span>
+      </label>
+      <label>
+        Username *
+        <input name="nginx_ui_user" required placeholder="admin" />
+      </label>
+      <label>
+        Password *
+        <input name="nginx_ui_password" type="password" required placeholder="••••••••" />
+      </label>
+      <label>
+        <span style="display:flex;align-items:center;gap:.5rem;color:var(--text-soft);font-weight:400;">
+          <input type="checkbox" name="use_2fa" style="width:auto;" />
+          Account uses 2FA (OTP required on login)
+        </span>
+      </label>
+      <div class="form-error" id="connection-form-error"></div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" onclick="closeConnectionModal()">Cancel</button>
+        <button type="submit">Save (UI only)</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openConnectionModal() {
+    document.getElementById('connection-modal').classList.add('open');
+    document.getElementById('connection-form-error').textContent = '';
+  }
+  function closeConnectionModal() {
+    document.getElementById('connection-modal').classList.remove('open');
+  }
+  function closeConnectionModalOnBackdrop(event) {
+    if (event.target.id === 'connection-modal') closeConnectionModal();
+  }
+  function submitConnection(event) {
+    event.preventDefault();
+    const form = event.target;
+    const panel = document.getElementById('nui-result');
+    const serverSelect = form.server_id;
+    const serverLabel = serverSelect.options[serverSelect.selectedIndex]?.text || '-';
+    panel.textContent = [
+      '[UI PREVIEW — not saved to database yet]',
+      '',
+      `Server: ${serverLabel}`,
+      `Nginx UI URL: ${form.nginx_ui_url.value.trim()}`,
+      `User: ${form.nginx_ui_user.value.trim()}`,
+      `2FA: ${form.use_2fa.checked ? 'yes' : 'no'}`,
+    ].join('\n');
+    closeConnectionModal();
+  }
+</script>
+{% endblock %}

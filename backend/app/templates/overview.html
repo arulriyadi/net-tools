@@ -1,0 +1,425 @@
+{% extends "base.html" %}
+
+{% block title %}Overview · NetTools{% endblock %}
+{% block page_title %}Overview{% endblock %}
+{% block page_subtitle %}Dashboard utama NetTools — ringkasan status modul yang aktif dan temuan terbaru.{% endblock %}
+
+{% block content %}
+<section class="card dash-top">
+  <div class="welcome-card">
+    <div class="welcome-avatar brand-mark" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+        <rect width="48" height="48" rx="11" fill="#ffffff"/>
+        <path d="M11 35C11 35 18 30 24 24C30 18 37 13 37 13" stroke="#1B8755" stroke-width="3.2" stroke-linecap="round"/>
+        <path d="M11 13C11 13 18 18 24 24C30 30 37 35 37 35" stroke="#00A3E0" stroke-width="3.2" stroke-linecap="round"/>
+        <path d="M24 10V24" stroke="#FDB913" stroke-width="3.2" stroke-linecap="round"/>
+        <path d="M24 24L34 30" stroke="#FDB913" stroke-width="3.2" stroke-linecap="round"/>
+        <circle cx="11" cy="13" r="4.2" fill="#00A3E0"/>
+        <circle cx="11" cy="35" r="4.2" fill="#1B8755"/>
+        <circle cx="37" cy="35" r="4.2" fill="#FDB913"/>
+        <circle cx="24" cy="10" r="3.6" fill="#FDB913"/>
+        <circle cx="24" cy="24" r="5.2" fill="#1565c0"/>
+        <circle cx="24" cy="24" r="2.2" fill="#ffffff"/>
+      </svg>
+    </div>
+    <div>
+      <h3>Welcome to NetTools</h3>
+      <p>Infrastructure monitoring · nginx-ui aktif · modul IPAM coming soon</p>
+    </div>
+  </div>
+  <div class="stat-grid">
+    <div class="stat-box">
+      <div class="label">Registered devices</div>
+      <div class="value">{{ servers|length }}</div>
+      <div class="breakdown">
+        <span class="stat-dot ok">Checked {{ checked_count }}</span>
+        <span class="stat-dot muted">Unchecked {{ unchecked_count }}</span>
+      </div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Nginx checks</div>
+      <div class="value">{{ total_checks + failed_checks }}</div>
+      <div class="breakdown">
+        <span class="stat-dot ok">Success {{ total_checks }}</span>
+        <span class="stat-dot{% if failed_checks %} bad{% else %} muted{% endif %}">Failed {{ failed_checks }}</span>
+      </div>
+    </div>
+    <div class="stat-box">
+      <div class="label">High risk</div>
+      <div class="value{% if high_risk_count %} stat-warn{% endif %}">{{ high_risk_count }}</div>
+      <div class="breakdown">
+        <span class="stat-dot warn">Needs attention</span>
+      </div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Open CVEs</div>
+      <div class="value{% if open_cve_count %} stat-warn{% endif %}">{{ open_cve_count }}</div>
+      <div class="breakdown">
+        <span class="stat-dot bad">Across latest assessments</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="dash-grid cols-2">
+  <div class="card chart-card">
+    <h3>Check Activity — Last 7 Days</h3>
+    <p class="chart-sub">Volume nginx check sukses vs gagal per hari</p>
+    <div class="chart-wrap tall">
+      <canvas id="chart-activity"></canvas>
+    </div>
+  </div>
+  <div class="card chart-card">
+    <h3>Check Success Rate</h3>
+    <p class="chart-sub">Proporsi job berhasil vs gagal</p>
+    <div class="chart-wrap tall">
+      <canvas id="chart-check-status"></canvas>
+      <div class="chart-center-stat" id="check-status-center">
+        <span class="big">—</span>
+        <span class="small">success</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="dash-grid cols-3">
+  <div class="card chart-card">
+    <h3>Risk Distribution</h3>
+    <p class="chart-sub">Berdasarkan last check per device</p>
+    <div class="chart-wrap">
+      <canvas id="chart-risk"></canvas>
+    </div>
+  </div>
+  <div class="card chart-card">
+    <h3>Nginx Version</h3>
+    <p class="chart-sub">Versi terdeteksi dari last check</p>
+    <div class="chart-wrap">
+      <canvas id="chart-versions"></canvas>
+    </div>
+  </div>
+  <div class="card chart-card">
+    <h3>Devices by Group</h3>
+    <p class="chart-sub">Inventory per group / environment</p>
+    <div class="chart-wrap">
+      <canvas id="chart-groups"></canvas>
+    </div>
+  </div>
+</section>
+
+<section class="dash-grid cols-2-1">
+  <div class="card chart-card">
+    <h3>Open CVE by Severity</h3>
+    <p class="chart-sub">Temuan CVE status open dari assessment terbaru</p>
+    <div class="chart-wrap compact">
+      <canvas id="chart-cve"></canvas>
+    </div>
+  </div>
+  <div class="card chart-card">
+    <div class="card-header" style="margin-bottom:.5rem;padding:0;border:none;">
+      <h3 style="margin:0;">Alerts</h3>
+      <a class="link-btn" href="/nginx-ui-management/nginx-check">View checks →</a>
+    </div>
+    <div class="alert-list">
+      {% for a in alerts %}
+      <div class="alert-item {{ a.level }}">
+        <span class="alert-dot"></span>
+        <div class="alert-body">
+          <div class="alert-title">{{ a.title }}</div>
+          <div class="alert-detail">{{ a.detail }}</div>
+          <div class="alert-time">{{ a.time }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty-state" style="padding:1.5rem 1rem;">No alerts — all systems look good.</div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Modules</h2>
+  <p class="card-intro">Modul yang tersedia di NetTools. Modul baru akan muncul di sini seiring rilis.</p>
+  <div class="module-grid">
+    <a class="module-card active" href="/nginx-ui-management/nginx-check">
+      <div class="module-card-icon nginx">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="M9 12l2 2 4-4"/>
+        </svg>
+      </div>
+      <div class="module-card-body">
+        <h3>nginx-ui-management</h3>
+        <p>SSH nginx check, CVE assessment, device inventory, dan integrasi nginx-ui API.</p>
+        <span class="module-card-meta">{{ servers|length }} devices · {{ total_checks }} checks</span>
+      </div>
+      <span class="module-card-badge ok">Active</span>
+    </a>
+    <div class="module-card disabled">
+      <div class="module-card-icon ipam">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </div>
+      <div class="module-card-body">
+        <h3>IPAM</h3>
+        <p>Manajemen alokasi IP, subnet, dan dokumentasi jaringan.</p>
+        <span class="module-card-meta">Planned</span>
+      </div>
+      <span class="module-card-badge neutral">Soon</span>
+    </div>
+  </div>
+</section>
+
+<section class="dash-grid cols-2">
+  <div class="card">
+    <div class="card-header">
+      <h2>Server Health</h2>
+      <a class="link-btn" href="/nginx-ui-management/device-inventory">Inventory →</a>
+    </div>
+    <div class="table-wrap">
+    <table class="mini-table">
+      <thead>
+        <tr>
+          <th>Server</th>
+          <th>Risk</th>
+          <th>nginx</th>
+          <th>Last check</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in servers %}
+        {% set last = (last_checks or {}).get(s.id) %}
+        <tr>
+          <td><strong>{{ s.name }}</strong></td>
+          <td>
+            {% if last and last.result and last.result.risk_level %}
+            <span class="risk-{{ last.result.risk_level }}">{{ last.result.risk_level|upper }}</span>
+            {% else %}
+            <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>{{ last.result.nginx_version if last and last.result else '—' }}</td>
+          <td class="muted">
+            {% if last %}{{ last.created_at.strftime('%m/%d %H:%M') }}{% else %}Never{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">No devices registered.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <h2>Recent Activity</h2>
+      <a class="link-btn" href="/nginx-ui-management/nginx-check">All →</a>
+    </div>
+    <div class="table-wrap">
+    <table class="mini-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Server</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for j in recent_jobs %}
+        <tr>
+          <td class="muted">{{ j.created_at.strftime('%m/%d %H:%M') }}</td>
+          <td>{{ j.server.name if j.server else j.server_id }}</td>
+          <td>
+            {% if j.status.value == 'success' and j.result and j.result.risk_level %}
+            <span class="risk-{{ j.result.risk_level }}">{{ j.result.risk_level|upper }}</span>
+            {% elif j.status.value == 'failed' %}
+            <span class="badge bad">FAILED</span>
+            {% else %}
+            <span class="badge ok">OK</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="muted">No activity yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  const chartData = {{ chart_data | tojson }};
+
+  const palette = {
+    blue: '#1565c0',
+    blueLight: '#42a5f5',
+    green: '#2e7d32',
+    greenLight: '#66bb6a',
+    red: '#c62828',
+    redLight: '#ef5350',
+    orange: '#ef6c00',
+    purple: '#7b1fa2',
+    gray: '#94a3b8',
+    grayLight: '#cbd5e1',
+  };
+
+  Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+  Chart.defaults.color = '#64748b';
+  Chart.defaults.plugins.legend.labels.boxWidth = 10;
+  Chart.defaults.plugins.legend.labels.padding = 14;
+
+  const donutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '68%',
+    plugins: {
+      legend: { position: 'bottom' },
+    },
+  };
+
+  const barOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false }, ticks: { maxRotation: 45, minRotation: 0, font: { size: 11 } } },
+      y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 }, grid: { color: '#f1f5f9' } },
+    },
+  };
+
+  new Chart(document.getElementById('chart-activity'), {
+    type: 'line',
+    data: {
+      labels: chartData.activity.labels,
+      datasets: [
+        {
+          label: 'Success',
+          data: chartData.activity.success,
+          borderColor: palette.blue,
+          backgroundColor: 'rgba(21, 101, 192, 0.12)',
+          fill: true,
+          tension: 0.35,
+          pointRadius: 4,
+          pointBackgroundColor: palette.blue,
+        },
+        {
+          label: 'Failed',
+          data: chartData.activity.failed,
+          borderColor: palette.redLight,
+          backgroundColor: 'rgba(239, 83, 80, 0.08)',
+          fill: true,
+          tension: 0.35,
+          pointRadius: 4,
+          pointBackgroundColor: palette.redLight,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top', align: 'end' } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 }, grid: { color: '#f1f5f9' } },
+      },
+    },
+  });
+
+  const successTotal = chartData.checkStatus.success;
+  const failedTotal = chartData.checkStatus.failed;
+  const grandTotal = successTotal + failedTotal;
+  const successPct = grandTotal ? Math.round((successTotal / grandTotal) * 100) : 0;
+  document.getElementById('check-status-center').querySelector('.big').textContent = `${successPct}%`;
+
+  new Chart(document.getElementById('chart-check-status'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Success', 'Failed'],
+      datasets: [{
+        data: [successTotal, failedTotal],
+        backgroundColor: [palette.greenLight, palette.redLight],
+        borderWidth: 0,
+        hoverOffset: 4,
+      }],
+    },
+    options: donutOptions,
+  });
+
+  new Chart(document.getElementById('chart-risk'), {
+    type: 'doughnut',
+    data: {
+      labels: chartData.risk.labels,
+      datasets: [{
+        data: chartData.risk.values,
+        backgroundColor: [palette.green, palette.orange, palette.red, palette.gray, palette.grayLight],
+        borderWidth: 0,
+        hoverOffset: 4,
+      }],
+    },
+    options: donutOptions,
+  });
+
+  new Chart(document.getElementById('chart-versions'), {
+    type: 'bar',
+    data: {
+      labels: chartData.versions.labels,
+      datasets: [{
+        data: chartData.versions.values,
+        backgroundColor: palette.blueLight,
+        borderRadius: 6,
+        maxBarThickness: 48,
+      }],
+    },
+    options: barOptions,
+  });
+
+  new Chart(document.getElementById('chart-groups'), {
+    type: 'bar',
+    data: {
+      labels: chartData.groups.labels.map((g) => g.length > 18 ? g.slice(0, 16) + '…' : g),
+      datasets: [{
+        data: chartData.groups.values,
+        backgroundColor: palette.blue,
+        borderRadius: 6,
+        maxBarThickness: 48,
+      }],
+    },
+    options: {
+      ...barOptions,
+      indexAxis: 'y',
+      scales: {
+        x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 }, grid: { color: '#f1f5f9' } },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+
+  const cveColors = {
+    CRITICAL: palette.red,
+    HIGH: palette.orange,
+    MEDIUM: '#fbc02d',
+    LOW: palette.greenLight,
+    UNKNOWN: palette.gray,
+    NONE: palette.grayLight,
+  };
+  new Chart(document.getElementById('chart-cve'), {
+    type: 'bar',
+    data: {
+      labels: chartData.cveSeverity.labels,
+      datasets: [{
+        data: chartData.cveSeverity.values,
+        backgroundColor: chartData.cveSeverity.labels.map((l) => cveColors[l] || palette.purple),
+        borderRadius: 6,
+        maxBarThickness: 40,
+      }],
+    },
+    options: barOptions,
+  });
+</script>
+{% endblock %}

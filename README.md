@@ -2,9 +2,9 @@
 
 Platform web internal untuk **operasi infrastruktur jaringan** — health check Nginx, inventaris perangkat, eksplorasi firewall Palo Alto, dan modul pendukung (DNS, IPAM, Net-Mon). Dibangun untuk kebutuhan operasional **Diskominfo Provinsi Jawa Barat**.
 
-Stack utama repo ini: **Next.js 16 + React 19** (dashboard, API routes, CSV parsers). Data persisten via **FastAPI + PostgreSQL** (sibling lokal [`net-tools-old`](../net-tools-old/) — legacy backend, opsional untuk dev API `:8090`).
+Stack: **Next.js 16 + React 19** (dashboard + API routes) dengan **PostgreSQL** untuk data persisten (device inventory, jobs, firewall datasets).
 
-UI awalnya diekspor dari [v0 net-tools-dashboard](https://v0.app/chat/net-tools-dashboard-bTmgthxtYYq); modul Resource Pool, Firewall, dan Nginx sudah di-wire ke backend.
+UI awalnya diekspor dari [v0 net-tools-dashboard](https://v0.app/chat/net-tools-dashboard-bTmgthxtYYq); modul Resource Pool, Firewall, dan Nginx sudah aktif.
 
 ---
 
@@ -35,21 +35,18 @@ Tables use **incremental scroll** (20 rows per batch) for large datasets.
 ## Architecture
 
 ```
-Browser  →  Next.js (net-tools, :8080)
-                ↓  app/api/* proxy
-            FastAPI (net-tools-old, :8090)  [optional legacy API]
+Browser  →  Net-Tools (Next.js, :8080)
+                ↓  app/api/*
+            API + PostgreSQL (:8090)
                 ↓
-         PostgreSQL (device inventory, jobs, metrics)
-                ↓
-         asyncssh  →  Nginx hosts / network gear (read-only ops)
+         SSH  →  Nginx / network devices
 ```
 
 | Layer | Responsibility |
 |-------|------------------|
-| **Next.js UI** (this repo) | App Router dashboard, Resource Pool, Firewall explorer, Nginx modules, API route proxies. |
-| **FastAPI** (`net-tools-old`) | REST API, WebSocket shell, background jobs, dataset storage — legacy, still used for local dev API. |
-| **PostgreSQL** | Servers, network devices, device types, data connectors, jobs, Nginx UI metrics. |
-| **SSH layer** | Credential-backed remote checks and upgrades (VPN/route to prod IPs required). |
+| **Net-Tools** (this repo) | UI, API routes, Palo CSV parsers, Resource Pool, Firewall, Nginx modules. |
+| **API + PostgreSQL** | Device inventory, jobs, dataset storage, WebSocket shell (dev: port `8090`). |
+| **SSH** | Remote checks and upgrades (VPN to prod IPs required). |
 
 ---
 
@@ -58,30 +55,20 @@ Browser  →  Next.js (net-tools, :8080)
 ```
 net-tools/
 ├── README.md
-├── package.json
-├── .env.example
-├── scripts/
-│   └── seed-firewall-dataset.ts
-├── docs/
-│   └── screenshots/              # Add UI screenshots here
-├── app/                          # Next.js App Router pages + API routes
+├── package.json              # Frontend (Next.js)
+├── .env.example              # Frontend env template
+├── backend/                  # API (FastAPI + PostgreSQL)
+│   ├── app/
+│   ├── requirements.txt
+│   ├── .env.example
+│   ├── scripts/dev-api.sh
+│   └── data/
+├── app/                      # Next.js pages + API route proxies
 ├── components/
-│   ├── dashboard/
-│   ├── firewall/
-│   ├── resource-pool/
-│   ├── nginx/
-│   ├── dns/
-│   ├── netmon/
-│   ├── ipam/
-│   └── ui/
 ├── lib/
-│   ├── firewall/                 # Types, Palo CSV parsers, mappers, list utils
-│   └── resource-pool/
+├── scripts/
 └── hooks/
-    └── use-incremental-list.ts
 ```
-
-Legacy FastAPI backend (archived): [`../net-tools-old/`](../net-tools-old/)
 
 ---
 
@@ -92,8 +79,8 @@ Legacy FastAPI backend (archived): [`../net-tools-old/`](../net-tools-old/)
 | Requirement | Notes |
 |-------------|--------|
 | **Node.js** | 20+ |
-| **PostgreSQL** | 14+ — via legacy API when using full stack |
-| **Python 3.10+** | Only if running `net-tools-old` API locally |
+| **Python** | 3.10+ (backend API) |
+| **PostgreSQL** | 14+ (database `nettools`) |
 | **SSH keys** | VPN to Jabar prod networks for live nginx checks |
 
 ### 1. Clone
@@ -122,46 +109,38 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_NETTOOLS_WS_URL` | `ws://127.0.0.1:8090` | WebSocket shell endpoint |
 | `NETTOOLS_SSH_KEYS_DIR` | — | Keychain path (shared with API) |
 
-### 3. Install & run UI
+### 3. Backend API
 
 ```bash
+cd backend
+cp .env.example .env    # edit DATABASE_URL if needed
+chmod +x scripts/dev-api.sh
+./scripts/dev-api.sh
+```
+
+Health: `http://127.0.0.1:8090/health`
+
+### 4. Frontend UI
+
+```bash
+cd ..   # repo root
 npm install
 npm run dev -- --port 8080 --hostname 0.0.0.0 --webpack
 ```
 
 Open: **http://localhost:8080**
 
-### 4. Full stack (UI + legacy API)
-
-Terminal 1 — API (from sibling `net-tools-old`):
-
-```bash
-cd ../net-tools-old
-cp .env.example .env
-source .venv/bin/activate   # or: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8090 --reload
-```
-
-Terminal 2 — UI:
-
-```bash
-cd ../net-tools
-npm run dev -- --port 8080 --webpack
-```
-
-API health: `http://127.0.0.1:8090/health` → `{"status":"ok","service":"nettools"}`
-
 ### 5. OrbStack (dev on `my-ubuntu`)
 
-| Service | URL |
-|---------|-----|
-| UI | `http://192.168.139.166:8080` |
-| API | `http://192.168.139.166:8090` |
+| Service | Path | URL |
+|---------|------|-----|
+| API | `backend/` | `http://192.168.139.166:8090` |
+| UI | repo root | `http://192.168.139.166:8080` |
 
-After code changes, clear stale bundles:
+After frontend code changes:
 
 ```bash
-cd net-tools && rm -rf .next && npm run dev -- --port 8080 --hostname 0.0.0.0 --webpack
+rm -rf .next && npm run dev -- --port 8080 --hostname 0.0.0.0 --webpack
 ```
 
 ---
@@ -202,7 +181,8 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Development server |
+| `npm run dev` | Frontend dev server |
+| `backend/scripts/dev-api.sh` | Backend API (FastAPI :8090) |
 | `npm run build` | Production build |
 | `npm run start` | Serve production build |
 | `npm run lint` | ESLint |
@@ -213,11 +193,10 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 
 | Decision | Rationale |
 |----------|-----------|
-| **Next.js as primary repo** | Single GitHub repo for the dashboard operators use daily. |
+| **Monorepo FE + BE** | Single `net-tools` folder — Next.js UI + FastAPI backend. |
 | **Dataset bindings per device** | Mix CSV import and live connectors — practical for Palo exports today. |
 | **Incremental list UI** | Large rule/object tables (750+ security rules, 9k+ objects) stay responsive. |
-| **API route proxy layer** | Next.js `app/api/*` forwards to FastAPI without exposing backend URL to browser. |
-| **Legacy backend archived** | `net-tools-old` retained locally for FastAPI/PostgreSQL until full migration. |
+| **API route proxy layer** | Next.js `app/api/*` talks to backend API + PostgreSQL. |
 
 ---
 
@@ -226,9 +205,9 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 | Symptom | Check |
 |---------|--------|
 | Empty firewall tabs | Device Overview → import CSV; confirm binding row count & last sync. |
-| API connection refused | `net-tools-old` running on `:8090`, `NETTOOLS_API_URL` in `.env.local`. |
+| API connection refused | Backend API running on `:8090`, check `NETTOOLS_API_URL` in `.env.local`. |
 | Stale UI after code change | `rm -rf .next` and restart dev. |
-| CORS errors | Add UI origin to `allow_origins` in `net-tools-old/app/main.py`. |
+| CORS errors | Add UI origin to backend API `allow_origins` config. |
 | SSH check fails | VPN route, key path, server credentials on record. |
 
 ---
@@ -239,7 +218,6 @@ Parsed JSON is stored on the network device record and surfaced in **Firewall Ma
 - [ ] Live Palo Alto API collectors (beyond CSV import)
 - [ ] Wire DNS / IPAM / Net-Mon modules to backend
 - [ ] CI + container deploy recipe
-- [ ] Migrate remaining FastAPI surface into Next.js or dedicated API service
 
 ---
 
@@ -253,7 +231,6 @@ Internal / organizational use — add explicit license file before public redist
 
 | Doc | Description |
 |-----|-------------|
-| [net-tools-old README](../net-tools-old/README.md) | Archived FastAPI backend (local dev only) |
 | [GitHub — net-tools](https://github.com/arulriyadi/net-tools) | This repository |
 
-**TL;DR:** `git clone` → `cp .env.example .env.local` → `npm install` → `npm run dev -- --port 8080` → (optional) start `net-tools-old` API → import Palo CSV → **Firewall Management**.
+**TL;DR:** `git clone` → `backend/scripts/dev-api.sh` + `npm run dev -- --port 8080` → import Palo CSV → **Firewall Management**.
