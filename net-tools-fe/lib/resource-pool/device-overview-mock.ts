@@ -44,6 +44,9 @@ const DEMO_IMPORT_ROWS: Record<string, number> = {
   service_objects: 149,
   routing_table: 142,
   interfaces: 28,
+  firewall_filter: 28,
+  firewall_nat: 14,
+  address_lists: 16,
   vlans: 64,
 }
 
@@ -196,12 +199,6 @@ export function connectorsForCapability(
   return resolveConnectors(type.connectorIds, options?.connectors).filter((conn) =>
     conn.capabilityKeys.includes(capabilityKey),
   )
-}
-
-export function mockImportRows(capabilityKey: string, fileName: string): number {
-  if (DEMO_IMPORT_ROWS[capabilityKey]) return DEMO_IMPORT_ROWS[capabilityKey]
-  const base = fileName.length * 7
-  return Math.max(12, base % 900 + 50)
 }
 
 export function formatSyncTime(iso: string | null): string {

@@ -6,6 +6,7 @@ import type {
   DataConnectorRecord,
   PollMode,
 } from "@/lib/resource-pool/data-connectors-mock"
+import { buildEndpointPattern } from "@/lib/resource-pool/connector-endpoint"
 
 export interface DataConnectorApiRecord {
   id: string
@@ -80,7 +81,7 @@ export function mapConnectorFormToPayload(form: DataConnectorFormData): DataConn
     capability_keys: form.capabilityKeys,
     description: form.description.trim(),
     default_port: Number.isFinite(port) ? port : null,
-    endpoint_pattern: form.endpointPattern.trim(),
+    endpoint_pattern: buildEndpointPattern(form).trim(),
     auth_methods: form.authMethods,
     poll_mode: form.pollMode,
     default_interval_minutes:

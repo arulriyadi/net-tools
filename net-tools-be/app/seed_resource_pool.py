@@ -10,10 +10,10 @@ SEED_CONNECTORS: list[dict] = [
         "vendor": "MikroTik",
         "protocol": "rest",
         "compatible_categories": ["router"],
-        "capability_keys": ["routing_table", "interfaces", "firewall_filter", "address_lists"],
+        "capability_keys": ["routing_table", "interfaces", "firewall_filter", "firewall_nat", "address_lists"],
         "description": (
-            "RouterOS v7+ REST API. Live routes, interfaces, and firewall tables. "
-            "Device supplies IP, TLS, and credentials."
+            "RouterOS v7+ REST API. Live routing table, interfaces, firewall filter/NAT, and address lists. "
+            "Endpoints: ip/route, interface, ip/firewall/filter, ip/firewall/nat, ip/firewall/address-list."
         ),
         "default_port": 443,
         "endpoint_pattern": "https://{host}/rest/{resource}",
@@ -21,6 +21,31 @@ SEED_CONNECTORS: list[dict] = [
         "poll_mode": "interval",
         "default_interval_minutes": 5,
         "parser_id": "mikrotik-rest-v1",
+        "status": "active",
+    },
+    {
+        "id": "conn-mikrotik-api",
+        "name": "MikroTik RouterOS API",
+        "vendor": "MikroTik",
+        "protocol": "api",
+        "compatible_categories": ["router"],
+        "capability_keys": [
+            "routing_table",
+            "interfaces",
+            "firewall_filter",
+            "firewall_nat",
+            "address_lists",
+        ],
+        "description": (
+            "Legacy RouterOS API (TCP 8728 plain, 8729 TLS). Fallback when HTTP/REST is disabled. "
+            "Uses /ip/route/print and related API commands."
+        ),
+        "default_port": 8728,
+        "endpoint_pattern": "tcp://{host}:8728 · {api_command}",
+        "auth_methods": ["basic"],
+        "poll_mode": "interval",
+        "default_interval_minutes": 5,
+        "parser_id": "mikrotik-api-v1",
         "status": "active",
     },
     {
@@ -73,7 +98,7 @@ SEED_CONNECTORS: list[dict] = [
         "vendor": "Cisco",
         "protocol": "ssh",
         "compatible_categories": ["router", "switch"],
-        "capability_keys": ["routing_table", "interfaces", "acl_rules"],
+        "capability_keys": ["routing_table", "interfaces"],
         "description": (
             "SSH session running show commands; output parsed to structured rows. "
             "Credentials from Keychain on each device."
@@ -159,26 +184,42 @@ ROUTER_CAPS = [
     {
         "key": "routing_table",
         "label": "Routing Table",
-        "description": "IPv4/IPv6 routes — static and connected.",
-        "import_kind": "csv",
-        "file_hint": "show ip route export or vendor CSV",
+        "description": "Full IPv4/IPv6 routing table — static, dynamic, connected, and gateway routes.",
+        "import_kind": "api",
+        "file_hint": "REST ip/route · API /ip/route/print",
         "enabled": True,
     },
     {
         "key": "interfaces",
         "label": "Interfaces",
-        "description": "Interface inventory with IP, VLAN, and status.",
-        "import_kind": "csv",
-        "file_hint": "show interfaces brief export",
+        "description": "Interface inventory with type, MTU, MAC, IP, and running state.",
+        "import_kind": "api",
+        "file_hint": "REST interface · API /interface/print",
         "enabled": True,
     },
     {
-        "key": "acl_rules",
-        "label": "ACL / Policy",
-        "description": "Access control lists or routing policy maps.",
-        "import_kind": "csv",
-        "file_hint": "Vendor-specific ACL export",
-        "enabled": False,
+        "key": "firewall_filter",
+        "label": "Firewall Filter Rules",
+        "description": "Filter chains (input / forward / output) — policy allow/drop/jump rules.",
+        "import_kind": "api",
+        "file_hint": "REST ip/firewall/filter · API /ip/firewall/filter/print",
+        "enabled": True,
+    },
+    {
+        "key": "firewall_nat",
+        "label": "Firewall NAT",
+        "description": "NAT rules — srcnat, dstnat, masquerade, netmap, and translations.",
+        "import_kind": "api",
+        "file_hint": "REST ip/firewall/nat · API /ip/firewall/nat/print",
+        "enabled": True,
+    },
+    {
+        "key": "address_lists",
+        "label": "Address Lists",
+        "description": "Named address lists used by firewall filter and NAT rules.",
+        "import_kind": "api",
+        "file_hint": "REST ip/firewall/address-list · API /ip/firewall/address-list/print",
+        "enabled": True,
     },
 ]
 
@@ -237,8 +278,20 @@ SEED_DEVICE_TYPES: list[dict] = [
         "vendor": "Cisco",
         "category": "router",
         "description": "Branch and core routers. Routing table and interface exports from show commands.",
-        "capabilities": ROUTER_CAPS,
+        "capabilities": [cap for cap in ROUTER_CAPS if cap["key"] in ("routing_table", "interfaces")],
         "connector_ids": ["conn-cisco-ssh-show"],
+    },
+    {
+        "id": "dt-mikrotik-routeros",
+        "name": "MikroTik RouterOS",
+        "vendor": "MikroTik",
+        "category": "router",
+        "description": (
+            "CCR, RB, and CHR routers on RouterOS v7+. Live datasets via REST API — "
+            "routing, interfaces, firewall filter/NAT, address lists."
+        ),
+        "capabilities": ROUTER_CAPS,
+        "connector_ids": ["conn-mikrotik-rest", "conn-mikrotik-api", "conn-mikrotik-snmp"],
     },
     {
         "id": "dt-arista-switch",

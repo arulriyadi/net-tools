@@ -143,6 +143,24 @@ export async function deleteNetworkDevice(id: string): Promise<void> {
   }
 }
 
+export async function syncDatasetLive(
+  deviceId: string,
+  capabilityKey: string,
+): Promise<{ device: NetworkDeviceRecord; rowCount: number }> {
+  const res = await fetch(`/api/resource-pool/network-devices/${deviceId}/sync-dataset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ capability_key: capabilityKey }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error ?? "Failed to sync dataset")
+  const payload = data as { device: NetworkDeviceApiRecord; row_count: number }
+  return {
+    device: mapNetworkDeviceFromApi(payload.device),
+    rowCount: payload.row_count,
+  }
+}
+
 export async function patchDatasetBinding(
   deviceId: string,
   capabilityKey: string,

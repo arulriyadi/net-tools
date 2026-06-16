@@ -6,8 +6,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import DeviceType, NetworkDevice
-from app.schemas.network_device import NetworkDeviceCreate, NetworkDeviceRead, NetworkDeviceUpdate
+from app.models import DataConnector, DeviceType, NetworkDevice
+from app.schemas.network_device import (
+    NetworkDeviceCreate,
+    NetworkDeviceRead,
+    NetworkDeviceUpdate,
+    SyncDatasetRequest,
+    SyncDatasetResponse,
+)
+from app.services.dataset_sync import DatasetSyncError, sync_device_dataset
 
 router = APIRouter(prefix="/api/network-devices", tags=["network-devices"])
 
@@ -99,3 +106,44 @@ async def delete_network_device(device_id: str, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=404, detail="Network device not found")
     await db.delete(device)
     await db.commit()
+
+
+@router.post("/{device_id}/sync-dataset", response_model=SyncDatasetResponse)
+async def sync_network_device_dataset(
+    device_id: str,
+    payload: SyncDatasetRequest,
+    db: AsyncSession = Depends(get_db),
+) -> SyncDatasetResponse:
+    device = await db.get(NetworkDevice, device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Network device not found")
+
+    binding = next(
+        (
+            item
+            for item in (device.dataset_bindings or [])
+            if item.get("capabilityKey") == payload.capability_key
+        ),
+        None,
+    )
+    if not binding:
+        raise HTTPException(status_code=404, detail=f"No binding for {payload.capability_key}")
+
+    connector_id = binding.get("connectorId")
+    if not connector_id:
+        raise HTTPException(status_code=400, detail="Dataset has no connector mapped")
+
+    connector = await db.get(DataConnector, connector_id)
+    if not connector:
+        raise HTTPException(status_code=400, detail=f"Unknown connector: {connector_id}")
+
+    try:
+        _, row_count = await sync_device_dataset(device, connector, payload.capability_key)
+    except DatasetSyncError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Sync failed: {exc}") from exc
+
+    await db.commit()
+    await db.refresh(device)
+    return SyncDatasetResponse(device=device, row_count=row_count)

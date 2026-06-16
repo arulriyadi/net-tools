@@ -47,3 +47,12 @@ class NetworkDeviceRead(NetworkDeviceBase):
     id: str
     created_at: datetime
     updated_at: datetime
+
+
+class SyncDatasetRequest(BaseModel):
+    capability_key: str = Field(min_length=1)
+
+
+class SyncDatasetResponse(BaseModel):
+    device: NetworkDeviceRead
+    row_count: int

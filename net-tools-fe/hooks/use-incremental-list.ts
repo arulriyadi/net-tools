@@ -45,6 +45,20 @@ export function useIncrementalList<T>(
     return () => observer.disconnect()
   }, [hasMore, loadMore, visibleCount])
 
+  useEffect(() => {
+    const root = scrollRootRef.current
+    if (!root || !hasMore) return
+
+    const onScroll = () => {
+      const remaining = root.scrollHeight - root.scrollTop - root.clientHeight
+      if (remaining < 120) loadMore()
+    }
+
+    root.addEventListener("scroll", onScroll, { passive: true })
+    onScroll()
+    return () => root.removeEventListener("scroll", onScroll)
+  }, [hasMore, loadMore, visibleCount])
+
   const ensureVisibleCount = useCallback((minimum: number) => {
     setVisibleCount((current) => Math.max(current, Math.min(minimum, itemsLength)))
   }, [itemsLength])

@@ -101,26 +101,42 @@ const ROUTER_CAPABILITIES: CapabilityDefinition[] = [
   {
     key: "routing_table",
     label: "Routing Table",
-    description: "IPv4/IPv6 routes — static and connected.",
-    importKind: "csv",
-    fileHint: "show ip route export or vendor CSV",
+    description: "Full IPv4/IPv6 routing table — static, dynamic, connected, and gateway routes.",
+    importKind: "api",
+    fileHint: "REST ip/route · API /ip/route/print",
     defaultEnabled: true,
   },
   {
     key: "interfaces",
     label: "Interfaces",
-    description: "Interface inventory with IP, VLAN, and status.",
-    importKind: "csv",
-    fileHint: "show interfaces brief export",
+    description: "Interface inventory with type, MTU, MAC, IP, and running state.",
+    importKind: "api",
+    fileHint: "REST interface · API /interface/print",
     defaultEnabled: true,
   },
   {
-    key: "acl_rules",
-    label: "ACL / Policy",
-    description: "Access control lists or routing policy maps.",
-    importKind: "csv",
-    fileHint: "Vendor-specific ACL export",
-    defaultEnabled: false,
+    key: "firewall_filter",
+    label: "Firewall Filter Rules",
+    description: "Filter chains (input / forward / output) — policy allow/drop/jump rules.",
+    importKind: "api",
+    fileHint: "REST ip/firewall/filter · API /ip/firewall/filter/print",
+    defaultEnabled: true,
+  },
+  {
+    key: "firewall_nat",
+    label: "Firewall NAT",
+    description: "NAT rules — srcnat, dstnat, masquerade, netmap, and translations.",
+    importKind: "api",
+    fileHint: "REST ip/firewall/nat · API /ip/firewall/nat/print",
+    defaultEnabled: true,
+  },
+  {
+    key: "address_lists",
+    label: "Address Lists",
+    description: "Named address lists used by firewall filter and NAT rules.",
+    importKind: "api",
+    fileHint: "REST ip/firewall/address-list · API /ip/firewall/address-list/print",
+    defaultEnabled: true,
   },
 ]
 
@@ -171,12 +187,6 @@ function buildCapabilities(
   }))
 }
 
-function defaultEnabledKeys(category: DeviceCategory): string[] {
-  return CAPABILITY_CATALOG[category]
-    .filter((def) => def.defaultEnabled)
-    .map((def) => def.key)
-}
-
 export const initialDeviceTypes: DeviceTypeRecord[] = [
   {
     id: "dt-palo-alto-fw",
@@ -220,6 +230,25 @@ export const initialDeviceTypes: DeviceTypeRecord[] = [
     deviceCount: 0,
     createdAt: "2026-06-08T09:00:00Z",
     updatedAt: "2026-06-08T09:00:00Z",
+  },
+  {
+    id: "dt-mikrotik-routeros",
+    name: "MikroTik RouterOS",
+    vendor: "MikroTik",
+    category: "router",
+    description:
+      "CCR, RB, and CHR routers on RouterOS v7+. Live datasets via REST API — routing, interfaces, firewall filter/NAT, address lists.",
+    capabilities: buildCapabilities("router", [
+      "routing_table",
+      "interfaces",
+      "firewall_filter",
+      "firewall_nat",
+      "address_lists",
+    ]),
+    connectorIds: ["conn-mikrotik-rest", "conn-mikrotik-api", "conn-mikrotik-snmp"],
+    deviceCount: 3,
+    createdAt: "2026-06-10T08:00:00Z",
+    updatedAt: "2026-06-16T16:00:00Z",
   },
   {
     id: "dt-arista-switch",
@@ -280,7 +309,7 @@ export function emptyDeviceTypeForm(category: DeviceCategory = "firewall"): Devi
     vendor: "",
     category,
     description: "",
-    enabledCapabilityKeys: defaultEnabledKeys(category),
+    enabledCapabilityKeys: [],
     enabledConnectorIds: [],
   }
 }

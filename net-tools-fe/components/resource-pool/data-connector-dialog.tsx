@@ -18,6 +18,19 @@ import {
   type DataConnectorRecord,
   type PollMode,
 } from "@/lib/resource-pool/data-connectors-mock"
+import { mikrotikConnectorHint } from "@/lib/resource-pool/mikrotik-dataset-api"
+import {
+  applyEndpointSchemeDefaults,
+  applyProtocolDefaults,
+  API_TRANSPORT_LABELS,
+  buildEndpointPattern,
+  REST_SCHEME_LABELS,
+  usesApiTransportDropdown,
+  usesFixedEndpointPattern,
+  usesRestSchemeDropdown,
+  type ApiTransportScheme,
+  type RestUrlScheme,
+} from "@/lib/resource-pool/connector-endpoint"
 import {
   Dialog,
   DialogContent,
@@ -72,17 +85,37 @@ export function DataConnectorDialog({
 
   const update = <K extends keyof DataConnectorFormData>(field: K, value: DataConnectorFormData[K]) => {
     setForm((prev) => {
-      const next = { ...prev, [field]: value }
       if (field === "protocol") {
+        let next = applyProtocolDefaults(prev, value as ConnectorProtocol)
         const allowed = new Set(AUTH_BY_PROTOCOL[value as ConnectorProtocol])
         next.authMethods = prev.authMethods.filter((m) => allowed.has(m))
         if (next.authMethods.length === 0) {
           next.authMethods = [AUTH_BY_PROTOCOL[value as ConnectorProtocol][0]]
         }
+        return next
       }
+
+      if (field === "endpointScheme") {
+        return applyEndpointSchemeDefaults(prev, String(value))
+      }
+
+      const next = { ...prev, [field]: value }
+
+      if (field === "parserId" || field === "vendor") {
+        next.endpointPattern = buildEndpointPattern(next)
+        if (usesApiTransportDropdown(next) && !next.endpointScheme) {
+          next.endpointScheme = "plain"
+        }
+      }
+
       return next
     })
   }
+
+  const resolvedEndpointPattern = useMemo(() => buildEndpointPattern(form), [form])
+  const showRestScheme = usesRestSchemeDropdown(form.protocol)
+  const showApiTransport = usesApiTransportDropdown(form)
+  const showFixedEndpoint = usesFixedEndpointPattern(form)
 
   const toggleCategory = (category: DeviceCategory) => {
     setForm((prev) => {
@@ -250,18 +283,62 @@ export function DataConnectorDialog({
               />
             </div>
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="conn-endpoint">Endpoint pattern</Label>
-              <Input
-                id="conn-endpoint"
-                placeholder="https://{host}/rest/{resource}"
-                value={form.endpointPattern}
-                onChange={(e) => update("endpointPattern", e.target.value)}
-                className="font-mono text-xs"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Use placeholders like {"{host}"}, {"{user}"}, {"{api_key}"} — resolved per device at
-                inventory.
-              </p>
+              {showRestScheme && (
+                <>
+                  <Label htmlFor="conn-scheme">URL scheme</Label>
+                  <Select
+                    value={(form.endpointScheme as RestUrlScheme) || "https"}
+                    onValueChange={(v) => update("endpointScheme", v)}
+                  >
+                    <SelectTrigger id="conn-scheme">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(REST_SCHEME_LABELS) as RestUrlScheme[]).map((scheme) => (
+                        <SelectItem key={scheme} value={scheme}>
+                          {REST_SCHEME_LABELS[scheme]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Port updates automatically (HTTP → 80, HTTPS → 443). {"{host}"} comes from Device
+                    Inventory.
+                  </p>
+                </>
+              )}
+              {showApiTransport && (
+                <>
+                  <Label htmlFor="conn-transport">API transport</Label>
+                  <Select
+                    value={(form.endpointScheme as ApiTransportScheme) || "plain"}
+                    onValueChange={(v) => update("endpointScheme", v)}
+                  >
+                    <SelectTrigger id="conn-transport">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(API_TRANSPORT_LABELS) as ApiTransportScheme[]).map((transport) => (
+                        <SelectItem key={transport} value={transport}>
+                          {API_TRANSPORT_LABELS[transport]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Legacy RouterOS API uses binary TCP — not HTTP/HTTPS. Plain = 8728, TLS = 8729.
+                  </p>
+                </>
+              )}
+              <Label>Endpoint pattern</Label>
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs break-all text-muted-foreground">
+                {resolvedEndpointPattern || "—"}
+              </div>
+              {showFixedEndpoint && (
+                <p className="text-[11px] text-muted-foreground">
+                  Fixed template for this protocol — placeholders resolved per device at inventory.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="conn-poll">Poll mode</Label>
@@ -362,7 +439,18 @@ export function DataConnectorDialog({
                         checked={checked}
                         onChange={() => toggleCapability(cap.key)}
                       />
-                      <span>{cap.label}</span>
+                      <span className="min-w-0">
+                        <span className="block">{cap.label}</span>
+                        {form.vendor.toLowerCase().includes("mikrotik") &&
+                          (form.protocol === "rest" || form.protocol === "api") && (
+                            <span className="mt-0.5 block font-mono text-[10px] leading-snug text-muted-foreground">
+                              {mikrotikConnectorHint(
+                                cap.key,
+                                form.protocol === "rest" ? "rest" : "api",
+                              )}
+                            </span>
+                          )}
+                      </span>
                     </label>
                   </li>
                 )

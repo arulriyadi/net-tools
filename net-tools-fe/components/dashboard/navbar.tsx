@@ -109,9 +109,8 @@ const navItems: NavItem[] = [
       },
       {
         title: "Router Management",
+        href: "/router",
         icon: Router,
-        disabled: true,
-        badge: "Coming soon",
       },
     ],
   },

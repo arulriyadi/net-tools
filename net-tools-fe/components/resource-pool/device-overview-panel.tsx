@@ -40,6 +40,7 @@ import {
   fetchNetworkDevice,
   importDatasetCsv,
   patchDatasetBinding,
+  syncDatasetLive,
 } from "@/lib/resource-pool/network-devices-api"
 import { isPaloImportCapability, parsePaloCsvImport } from "@/lib/firewall/palo-csv-import"
 import { fetchDataConnectors } from "@/lib/resource-pool/data-connectors-api"
@@ -49,7 +50,6 @@ import {
   connectorsForCapability,
   formatSyncTime,
   IMPORT_KIND_LABELS,
-  mockImportRows,
   SOURCE_LABELS,
   type DatasetBinding,
   type DatasetSourceType,
@@ -273,18 +273,26 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
   const handleSync = async (binding: DatasetBinding) => {
     if (!networkDevice || binding.source !== "live" || !binding.connectorId) return
     setSyncingKey(binding.capabilityKey)
-    await persistBindingPatch(binding.capabilityKey, { syncStatus: "syncing" })
+    setBindings((prev) =>
+      prev.map((item) =>
+        item.capabilityKey === binding.capabilityKey
+          ? { ...item, syncStatus: "syncing" as const, syncMessage: undefined }
+          : item,
+      ),
+    )
 
-    await new Promise((resolve) => window.setTimeout(resolve, 1200))
-
-    const rows = mockImportRows(binding.capabilityKey, binding.connectorName ?? "live")
-    await persistBindingPatch(binding.capabilityKey, {
-      rowCount: rows,
-      lastSyncAt: new Date().toISOString(),
-      syncStatus: "ok",
-      syncMessage: undefined,
-    })
-    setSyncingKey(null)
+    try {
+      const { device } = await syncDatasetLive(deviceId, binding.capabilityKey)
+      setNetworkDevice(device)
+      setBindings(device.datasetBindings ?? [])
+    } catch (err) {
+      await persistBindingPatch(binding.capabilityKey, {
+        syncStatus: "error",
+        syncMessage: err instanceof Error ? err.message : "Sync failed",
+      })
+    } finally {
+      setSyncingKey(null)
+    }
   }
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -429,7 +437,7 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold">Dataset bindings</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Per-dataset source — CSV import or live connector. Import and sync are simulated until collectors are wired.
+            Per-dataset source — CSV import or live connector. Live sync pulls data from the device via the mapped connector.
           </p>
         </div>
         <div className="overflow-x-auto">

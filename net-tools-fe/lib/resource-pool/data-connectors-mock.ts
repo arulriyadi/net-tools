@@ -1,5 +1,11 @@
 import type { DeviceCategory } from "@/lib/resource-pool/device-types-mock"
 import { CATEGORY_LABELS } from "@/lib/resource-pool/device-types-mock"
+import {
+  buildEndpointPattern,
+  defaultPortForRestScheme,
+  defaultRestScheme,
+  endpointSchemeFromRecord,
+} from "@/lib/resource-pool/connector-endpoint"
 
 export type ConnectorProtocol = "api" | "rest" | "snmp" | "ssh" | "netconf"
 
@@ -50,6 +56,8 @@ export interface DataConnectorFormData {
   capabilityKeys: string[]
   description: string
   defaultPort: string
+  /** http | https (REST) or plain | tls (MikroTik legacy API) — drives endpointPattern */
+  endpointScheme: string
   endpointPattern: string
   authMethods: ConnectorAuthMethod[]
   pollMode: PollMode
@@ -59,8 +67,8 @@ export interface DataConnectorFormData {
 }
 
 export const PROTOCOL_LABELS: Record<ConnectorProtocol, string> = {
-  api: "API (XML/JSON)",
-  rest: "REST API",
+  api: "RouterOS / device API",
+  rest: "REST API (HTTP)",
   snmp: "SNMP",
   ssh: "SSH + CLI parse",
   netconf: "NETCONF",
@@ -85,13 +93,29 @@ export const CONNECTOR_CAPABILITY_OPTIONS: ConnectorCapabilityOption[] = [
   { key: "security_rules", label: "Security Rules", categories: ["firewall"] },
   { key: "nat_rules", label: "NAT Rules", categories: ["firewall"] },
   { key: "address_objects", label: "Address Objects", categories: ["firewall"] },
-  { key: "static_routes", label: "Static Routes", categories: ["firewall", "router"] },
+  { key: "static_routes", label: "Static Routes", categories: ["firewall"] },
   { key: "service_objects", label: "Service Objects", categories: ["firewall"] },
-  { key: "routing_table", label: "Routing Table", categories: ["router"] },
+  {
+    key: "routing_table",
+    label: "Routing Table",
+    categories: ["router"],
+  },
   { key: "interfaces", label: "Interfaces", categories: ["router", "switch", "firewall"] },
-  { key: "acl_rules", label: "ACL / Policy", categories: ["router"] },
-  { key: "firewall_filter", label: "Firewall Filter Rules", categories: ["router"] },
-  { key: "address_lists", label: "Address Lists", categories: ["router"] },
+  {
+    key: "firewall_filter",
+    label: "Firewall Filter Rules",
+    categories: ["router"],
+  },
+  {
+    key: "firewall_nat",
+    label: "Firewall NAT",
+    categories: ["router"],
+  },
+  {
+    key: "address_lists",
+    label: "Address Lists",
+    categories: ["router"],
+  },
   { key: "vlans", label: "VLANs", categories: ["switch"] },
   { key: "mac_table", label: "MAC Address Table", categories: ["switch"] },
   { key: "snmp_metrics", label: "SNMP Counters / Metrics", categories: ["router", "switch"] },
@@ -104,9 +128,10 @@ export const initialDataConnectors: DataConnectorRecord[] = [
     vendor: "MikroTik",
     protocol: "rest",
     compatibleCategories: ["router"],
-    capabilityKeys: ["routing_table", "interfaces", "firewall_filter", "address_lists"],
+    capabilityKeys: ["routing_table", "interfaces", "firewall_filter", "firewall_nat", "address_lists"],
     description:
-      "RouterOS v7+ REST API. Live routes, interfaces, and firewall tables. Device supplies IP, TLS, and credentials.",
+      "RouterOS v7+ REST API. Live routing table, interfaces, firewall filter/NAT, and address lists. " +
+      "Endpoints: ip/route, interface, ip/firewall/filter, ip/firewall/nat, ip/firewall/address-list.",
     defaultPort: 443,
     endpointPattern: "https://{host}/rest/{resource}",
     authMethods: ["basic", "bearer"],
@@ -114,9 +139,31 @@ export const initialDataConnectors: DataConnectorRecord[] = [
     defaultIntervalMinutes: 5,
     parserId: "mikrotik-rest-v1",
     status: "active",
-    typeCount: 0,
+    typeCount: 1,
     createdAt: "2026-06-10T08:00:00Z",
-    updatedAt: "2026-06-12T18:00:00Z",
+    updatedAt: "2026-06-16T16:00:00Z",
+  },
+  {
+    id: "conn-mikrotik-api",
+    name: "MikroTik RouterOS API",
+    vendor: "MikroTik",
+    protocol: "api",
+    compatibleCategories: ["router"],
+    capabilityKeys: ["routing_table", "interfaces", "firewall_filter", "firewall_nat", "address_lists"],
+    description:
+      "Legacy RouterOS API (binary protocol). Works when HTTP/REST (www) is disabled. " +
+      "Default port 8728 (plain); use 8729 with TLS when certificate is configured. " +
+      "Commands: /ip/route/print, /interface/print, /ip/firewall/filter/print, etc.",
+    defaultPort: 8728,
+    endpointPattern: "tcp://{host}:8728 · {api_command}",
+    authMethods: ["basic"],
+    pollMode: "interval",
+    defaultIntervalMinutes: 5,
+    parserId: "mikrotik-api-v1",
+    status: "active",
+    typeCount: 1,
+    createdAt: "2026-06-16T17:30:00Z",
+    updatedAt: "2026-06-16T17:30:00Z",
   },
   {
     id: "conn-mikrotik-snmp",
@@ -164,7 +211,7 @@ export const initialDataConnectors: DataConnectorRecord[] = [
     vendor: "Cisco",
     protocol: "ssh",
     compatibleCategories: ["router", "switch"],
-    capabilityKeys: ["routing_table", "interfaces", "acl_rules"],
+    capabilityKeys: ["routing_table", "interfaces"],
     description:
       "SSH session running show commands; output parsed to structured rows. Credentials from Keychain on each device.",
     defaultPort: 22,
@@ -210,6 +257,7 @@ export function categoryLabels(categories: DeviceCategory[]): string {
 }
 
 export function emptyConnectorForm(): DataConnectorFormData {
+  const scheme = defaultRestScheme()
   return {
     name: "",
     vendor: "",
@@ -217,7 +265,8 @@ export function emptyConnectorForm(): DataConnectorFormData {
     compatibleCategories: ["router"],
     capabilityKeys: [],
     description: "",
-    defaultPort: "443",
+    defaultPort: defaultPortForRestScheme(scheme),
+    endpointScheme: scheme,
     endpointPattern: "",
     authMethods: ["basic"],
     pollMode: "interval",
@@ -228,7 +277,7 @@ export function emptyConnectorForm(): DataConnectorFormData {
 }
 
 export function formFromConnector(record: DataConnectorRecord): DataConnectorFormData {
-  return {
+  const base: DataConnectorFormData = {
     name: record.name,
     vendor: record.vendor,
     protocol: record.protocol,
@@ -236,6 +285,7 @@ export function formFromConnector(record: DataConnectorRecord): DataConnectorFor
     capabilityKeys: [...record.capabilityKeys],
     description: record.description,
     defaultPort: record.defaultPort != null ? String(record.defaultPort) : "",
+    endpointScheme: "",
     endpointPattern: record.endpointPattern,
     authMethods: [...record.authMethods],
     pollMode: record.pollMode,
@@ -244,6 +294,8 @@ export function formFromConnector(record: DataConnectorRecord): DataConnectorFor
     parserId: record.parserId,
     status: record.status,
   }
+  base.endpointScheme = endpointSchemeFromRecord(base)
+  return base
 }
 
 export function recordFromConnectorForm(
@@ -265,7 +317,7 @@ export function recordFromConnectorForm(
     capabilityKeys: form.capabilityKeys,
     description: form.description.trim(),
     defaultPort: Number.isFinite(port) ? port : null,
-    endpointPattern: form.endpointPattern.trim(),
+    endpointPattern: buildEndpointPattern(form).trim(),
     authMethods: form.authMethods,
     pollMode: form.pollMode,
     defaultIntervalMinutes: form.pollMode === "interval" && Number.isFinite(interval) ? interval : null,
@@ -317,6 +369,18 @@ export function resolveConnectors(
 ): DataConnectorRecord[] {
   const byId = new Map(connectors.map((conn) => [conn.id, conn]))
   return ids.map((id) => byId.get(id)).filter((conn): conn is DataConnectorRecord => Boolean(conn))
+}
+
+/** Union of capability keys offered by the selected connector templates */
+export function capabilityKeysForConnectors(
+  connectorIds: string[],
+  connectors: DataConnectorRecord[] = initialDataConnectors,
+): string[] {
+  const keys = new Set<string>()
+  for (const conn of resolveConnectors(connectorIds, connectors)) {
+    for (const key of conn.capabilityKeys) keys.add(key)
+  }
+  return [...keys]
 }
 
 export function connectorSummary(

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import {
   CAPABILITY_CATALOG,
@@ -13,6 +13,7 @@ import {
   formFromDeviceType,
 } from "@/lib/resource-pool/device-types-mock"
 import {
+  capabilityKeysForConnectors,
   connectorsForCategory,
   PROTOCOL_LABELS,
   type DataConnectorRecord,
@@ -74,16 +75,14 @@ export function DeviceTypeDialog({
       const next = { ...prev, [field]: value }
       if (field === "category") {
         const category = value as DeviceCategory
-        const allowed = new Set(CAPABILITY_CATALOG[category].map((c) => c.key))
-        next.enabledCapabilityKeys = CAPABILITY_CATALOG[category]
-          .filter((def) => def.defaultEnabled)
-          .map((def) => def.key)
-          .filter((key) => allowed.has(key))
-
         const allowedConnectors = new Set(
           connectorsForCategory(category, connectors).map((conn) => conn.id),
         )
         next.enabledConnectorIds = prev.enabledConnectorIds.filter((id) => allowedConnectors.has(id))
+        const allowedKeys = new Set(
+          capabilityKeysForConnectors(next.enabledConnectorIds, connectors),
+        )
+        next.enabledCapabilityKeys = prev.enabledCapabilityKeys.filter((key) => allowedKeys.has(key))
       }
       return next
     })
@@ -103,13 +102,18 @@ export function DeviceTypeDialog({
       const ids = prev.enabledConnectorIds.includes(id)
         ? prev.enabledConnectorIds.filter((item) => item !== id)
         : [...prev.enabledConnectorIds, id]
-      return { ...prev, enabledConnectorIds: ids }
+
+      const allowedKeys = new Set(capabilityKeysForConnectors(ids, connectors))
+      const enabledCapabilityKeys = prev.enabledCapabilityKeys.filter((key) => allowedKeys.has(key))
+
+      return { ...prev, enabledConnectorIds: ids, enabledCapabilityKeys }
     })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.name.trim() || !form.vendor.trim()) return
+    if (form.enabledConnectorIds.length === 0) return
     if (form.enabledCapabilityKeys.length === 0) return
     setSubmitting(true)
     try {
@@ -120,8 +124,20 @@ export function DeviceTypeDialog({
     }
   }
 
-  const catalog = CAPABILITY_CATALOG[form.category]
   const categoryConnectors = connectorsForCategory(form.category, connectors)
+  const hasSelectedConnectors = form.enabledConnectorIds.length > 0
+
+  const capabilityCatalog = useMemo(() => {
+    if (!hasSelectedConnectors) return []
+    const allowedKeys = new Set(capabilityKeysForConnectors(form.enabledConnectorIds, connectors))
+    return CAPABILITY_CATALOG[form.category].filter((def) => allowedKeys.has(def.key))
+  }, [form.category, form.enabledConnectorIds, connectors, hasSelectedConnectors])
+
+  const canSubmit =
+    form.name.trim() &&
+    form.vendor.trim() &&
+    form.enabledConnectorIds.length > 0 &&
+    form.enabledCapabilityKeys.length > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -129,8 +145,8 @@ export function DeviceTypeDialog({
         <DialogHeader>
           <DialogTitle>{mode === "edit" ? "Edit Device Type" : "Add Device Type"}</DialogTitle>
           <DialogDescription>
-            Define a vendor template and which datasets this type supports for CSV / API import on
-            Device Overview.
+            Define a vendor template: pick live data connectors first, then choose which datasets this
+            type exposes on Device Overview.
           </DialogDescription>
         </DialogHeader>
 
@@ -186,60 +202,13 @@ export function DeviceTypeDialog({
 
           <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
             <div>
-              <p className="text-sm font-medium text-foreground">Data capabilities</p>
+              <p className="text-sm font-medium text-foreground">Data Connectors *</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Select datasets available when a device of this type is in datastore-only mode.
-                {form.enabledCapabilityKeys.length === 0 && (
-                  <span className="text-destructive"> At least one capability is required.</span>
+                Choose live connector templates first. Only connectors compatible with{" "}
+                {CATEGORY_LABELS[form.category].toLowerCase()} are shown.
+                {form.enabledConnectorIds.length === 0 && (
+                  <span className="text-destructive"> Select at least one connector.</span>
                 )}
-              </p>
-            </div>
-
-            <ul className="space-y-2">
-              {catalog.map((def) => {
-                const checked = form.enabledCapabilityKeys.includes(def.key)
-                return (
-                  <li key={def.key}>
-                    <label
-                      className={cn(
-                        "flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors",
-                        checked
-                          ? "border-primary/40 bg-primary/5"
-                          : "border-border bg-background hover:bg-accent/40",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4 rounded border-input"
-                        checked={checked}
-                        onChange={() => toggleCapability(def.key)}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium">{def.label}</span>
-                          <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            <ImportKindIcon kind={def.importKind} />
-                            {IMPORT_KIND_LABELS[def.importKind]}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">{def.description}</p>
-                        <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
-                          {def.fileHint}
-                        </p>
-                      </div>
-                    </label>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-
-          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Data Connectors</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Select live connector templates for devices of this type. Only connectors compatible
-                with {CATEGORY_LABELS[form.category].toLowerCase()} are shown.
               </p>
             </div>
 
@@ -288,6 +257,11 @@ export function DeviceTypeDialog({
                           <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
                             {conn.endpointPattern}
                           </p>
+                          {conn.capabilityKeys.length > 0 && (
+                            <p className="mt-1 text-[10px] text-muted-foreground">
+                              Datasets: {conn.capabilityKeys.length} available
+                            </p>
+                          )}
                         </div>
                       </label>
                     </li>
@@ -297,19 +271,71 @@ export function DeviceTypeDialog({
             )}
           </div>
 
+          {hasSelectedConnectors && (
+            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">Data capabilities *</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Datasets available from your selected connector
+                  {form.enabledConnectorIds.length > 1 ? "s" : ""}. Only capabilities supported by
+                  the chosen templates are listed.
+                  {form.enabledCapabilityKeys.length === 0 && (
+                    <span className="text-destructive"> Select at least one dataset.</span>
+                  )}
+                </p>
+              </div>
+
+              {capabilityCatalog.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
+                  Selected connectors do not expose datasets for this category.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {capabilityCatalog.map((def) => {
+                    const checked = form.enabledCapabilityKeys.includes(def.key)
+                    return (
+                      <li key={def.key}>
+                        <label
+                          className={cn(
+                            "flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors",
+                            checked
+                              ? "border-primary/40 bg-primary/5"
+                              : "border-border bg-background hover:bg-accent/40",
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1 h-4 w-4 rounded border-input"
+                            checked={checked}
+                            onChange={() => toggleCapability(def.key)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium">{def.label}</span>
+                              <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                <ImportKindIcon kind={def.importKind} />
+                                {IMPORT_KIND_LABELS[def.importKind]}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{def.description}</p>
+                            <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
+                              {def.fileHint}
+                            </p>
+                          </div>
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={
-                submitting ||
-                !form.name.trim() ||
-                !form.vendor.trim() ||
-                form.enabledCapabilityKeys.length === 0
-              }
-            >
+            <Button type="submit" disabled={submitting || !canSubmit}>
               {submitting ? "Saving…" : mode === "edit" ? "Save Changes" : "Add Device Type"}
             </Button>
           </DialogFooter>

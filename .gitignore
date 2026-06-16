@@ -118,8 +118,14 @@ __v0_jsx-dev-runtime.ts
 tmp/
 temp/
 
-# --- Local-only (not for GitHub) ---------------------------------------------
-scripts/git-push.sh
+# --- Local MikroTik lab captures (may contain real device snapshots) ---
+net-tools-fe/lib/router/mikrotik-rest-samples/
+
+# Internal lab verification notes (device IP, counts — do not push)
+docs/mikrotik-lab-verification.md
+
+# Lab / smoke-test scripts (default IP & credentials — local only)
+net-tools-be/scripts/test-*.py
 
 # --- Python backend ----------------------------------------------------------
 net-tools-be/.venv/
