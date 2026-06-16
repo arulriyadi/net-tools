@@ -114,3 +114,6 @@ __v0_jsx-dev-runtime.ts
 .temp/
 tmp/
 temp/
+
+# --- Local-only (not for GitHub) ---------------------------------------------
+scripts/git-push.sh
