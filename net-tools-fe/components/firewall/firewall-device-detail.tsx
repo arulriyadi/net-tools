@@ -16,12 +16,14 @@ import {
   Boxes,
   Waypoints,
   ChevronLeft,
+  GitCompareArrows,
   Loader2,
 } from "lucide-react"
 import { fetchFirewallDeviceDetail } from "@/lib/firewall/firewall-api"
 import type {
   AddressObject,
   FwDevice,
+  NatFlow,
   NatRule,
   SecurityRule,
   ServiceObject,
@@ -36,6 +38,9 @@ import { SecurityListInsights } from "@/components/firewall/security-list-insigh
 import { SecurityListToolbar } from "@/components/firewall/security-list-toolbar"
 import { NatListInsights } from "@/components/firewall/nat-list-insights"
 import { NatListToolbar } from "@/components/firewall/nat-list-toolbar"
+import { NatFlowListInsights } from "@/components/firewall/nat-flow-list-insights"
+import { NatFlowListToolbar } from "@/components/firewall/nat-flow-list-toolbar"
+import { NatFlowDiagram } from "@/components/firewall/nat-flow-diagram"
 import { ObjectListInsights } from "@/components/firewall/object-list-insights"
 import { ObjectListToolbar } from "@/components/firewall/object-list-toolbar"
 import { ServiceListInsights } from "@/components/firewall/service-list-insights"
@@ -43,6 +48,17 @@ import { ServiceListToolbar } from "@/components/firewall/service-list-toolbar"
 import { computeRouteInsights } from "@/lib/firewall/route-summary"
 import { computeSecurityInsights } from "@/lib/firewall/security-summary"
 import { computeNatInsights } from "@/lib/firewall/nat-summary"
+import { buildNatFlows, NAT_FLOW_KIND_LABELS } from "@/lib/firewall/nat-flow"
+import {
+  computeNatFlowInsights,
+  defaultNatFlowSort,
+  emptyNatFlowListFilters,
+  exportNatFlowsCsv,
+  filterAndSortNatFlows,
+  filterNatFlows,
+  type NatFlowListFilters,
+  type NatFlowSortState,
+} from "@/lib/firewall/nat-flow-list-utils"
 import { computeObjectInsights } from "@/lib/firewall/object-summary"
 import { computeServiceInsights } from "@/lib/firewall/service-summary"
 import {
@@ -112,7 +128,7 @@ import { MultiValueCell, splitMultiValue } from "@/components/firewall/multi-val
 import { IncrementalListStatus } from "@/components/firewall/incremental-list-status"
 import { useIncrementalList } from "@/hooks/use-incremental-list"
 
-type FwTab = "security" | "nat" | "routes" | "objects" | "services"
+type FwTab = "security" | "nat" | "natFlow" | "routes" | "objects" | "services"
 
 const TABLE_SCROLL_CLASS =
   "max-w-full max-h-[min(680px,calc(100vh-18rem))] overflow-x-auto overflow-y-auto overscroll-x-contain overscroll-y-contain [-webkit-overflow-scrolling:touch]"
@@ -137,6 +153,8 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
   const [securitySort, setSecuritySort] = useState<SecuritySortState>(defaultSecuritySort)
   const [natFilters, setNatFilters] = useState<NatListFilters>(emptyNatListFilters)
   const [natSort, setNatSort] = useState<NatSortState>(defaultNatSort)
+  const [natFlowFilters, setNatFlowFilters] = useState<NatFlowListFilters>(emptyNatFlowListFilters)
+  const [natFlowSort, setNatFlowSort] = useState<NatFlowSortState>(defaultNatFlowSort)
   const [focusObjectId, setFocusObjectId] = useState<string | null>(null)
   const [routeFilters, setRouteFilters] = useState<RouteListFilters>(emptyRouteListFilters)
   const [routeSort, setRouteSort] = useState<RouteSortState>(defaultRouteSort)
@@ -213,6 +231,23 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
     [natRules.length, filteredNatBeforeSort],
   )
 
+  const natFlows = useMemo(() => buildNatFlows(natRules), [natRules])
+
+  const filteredNatFlowBeforeSort = useMemo(
+    () => filterNatFlows(natFlows, natFlowFilters),
+    [natFlows, natFlowFilters],
+  )
+
+  const filteredNatFlow = useMemo(
+    () => filterAndSortNatFlows(natFlows, natFlowFilters, natFlowSort),
+    [natFlows, natFlowFilters, natFlowSort],
+  )
+
+  const natFlowInsights = useMemo(
+    () => computeNatFlowInsights(natFlows, filteredNatFlowBeforeSort),
+    [natFlows, filteredNatFlowBeforeSort],
+  )
+
   const routeFilterOptions = useMemo(
     () => uniqueRouteValues(resolvedRoutes),
     [resolvedRoutes],
@@ -278,6 +313,8 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
         return filteredSecurity
       case "nat":
         return filteredNat
+      case "natFlow":
+        return filteredNatFlow
       case "routes":
         return filteredRoutes
       case "objects":
@@ -287,7 +324,7 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
       default:
         return []
     }
-  }, [tab, filteredSecurity, filteredNat, filteredRoutes, filteredObjects, filteredServices])
+  }, [tab, filteredSecurity, filteredNat, filteredNatFlow, filteredRoutes, filteredObjects, filteredServices])
 
   const {
     visibleItems: visibleListItems,
@@ -309,6 +346,7 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
   const tabItems = [
     { id: "security" as const, label: "Security Rules", icon: ListChecks, count: securityRules.length },
     { id: "nat" as const, label: "NAT Rules", icon: ArrowRightLeft, count: natRules.length },
+    { id: "natFlow" as const, label: "NAT Flow", icon: GitCompareArrows, count: natFlows.length },
     { id: "routes" as const, label: "Route List", icon: Route, count: resolvedRoutes.length },
     { id: "objects" as const, label: "Object List", icon: Boxes, count: addressObjects.length },
     { id: "services" as const, label: "Service List", icon: Waypoints, count: serviceObjects.length },
@@ -320,6 +358,8 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
     setSecuritySort(defaultSecuritySort)
     setNatFilters(emptyNatListFilters)
     setNatSort(defaultNatSort)
+    setNatFlowFilters(emptyNatFlowListFilters)
+    setNatFlowSort(defaultNatFlowSort)
     setFocusObjectId(null)
     setRouteFilters(emptyRouteListFilters)
     setRouteSort(defaultRouteSort)
@@ -337,6 +377,11 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
   const resetNatControls = () => {
     setNatFilters(emptyNatListFilters)
     setNatSort(defaultNatSort)
+  }
+
+  const resetNatFlowControls = () => {
+    setNatFlowFilters(emptyNatFlowListFilters)
+    setNatFlowSort(defaultNatFlowSort)
   }
 
   const resetRouteControls = () => {
@@ -365,6 +410,13 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
     exportNatRulesCsv(
       filteredNat,
       `nat-rules-${device?.hostname ?? deviceId}-filtered-${filteredNat.length}.csv`,
+    )
+  }
+
+  const handleNatFlowExport = () => {
+    exportNatFlowsCsv(
+      filteredNatFlow,
+      `nat-flow-${device?.hostname ?? deviceId}-filtered-${filteredNatFlow.length}.csv`,
     )
   }
 
@@ -623,6 +675,30 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
                 setNatFilters((current) => ({
                   ...current,
                   type: type && current.type === type ? "" : type ?? "",
+                }))
+              }
+            />
+          )}
+
+          {tab === "natFlow" && (
+            <NatFlowListToolbar
+              filters={natFlowFilters}
+              sort={natFlowSort}
+              onFiltersChange={setNatFlowFilters}
+              onSortChange={setNatFlowSort}
+              onReset={resetNatFlowControls}
+              onExport={handleNatFlowExport}
+            />
+          )}
+
+          {tab === "natFlow" && (
+            <NatFlowListInsights
+              insights={natFlowInsights}
+              activeKind={natFlowFilters.kind || null}
+              onKindSelect={(kind) =>
+                setNatFlowFilters((current) => ({
+                  ...current,
+                  kind: kind && current.kind === kind ? "" : kind ?? "",
                 }))
               }
             />
@@ -911,6 +987,66 @@ export function FirewallDeviceDetail({ deviceId }: FirewallDeviceDetailProps) {
                     <td colSpan={10} className="px-3 py-10 text-center text-sm text-muted-foreground">
                       <CircleDot className="mx-auto mb-2 h-5 w-5 opacity-40" />
                       No NAT rules. Connect a data source or import a CSV / Palo export.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : tab === "natFlow" ? (
+            <table className="w-max text-sm">
+              <thead className="sticky top-0 z-10 bg-muted/40 text-xs uppercase text-muted-foreground backdrop-blur-sm">
+                <tr>
+                  <th className="whitespace-nowrap px-3 py-2 text-left font-medium">#</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left font-medium">Flow</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left font-medium">Kind</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left font-medium min-w-[280px]">Summary</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left font-medium">Inbound Rule</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left font-medium">Outbound Rule</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(visibleListItems as NatFlow[]).map((flow, i) => (
+                  <tr
+                    key={flow.id}
+                    className={cn(
+                      "border-t border-border transition-colors",
+                      flow.enabled
+                        ? "hover:bg-muted/30"
+                        : "border-l-[3px] border-l-muted-foreground/35 bg-muted/15 hover:bg-muted/25",
+                    )}
+                  >
+                    <td className={cn("px-3 py-2 tabular-nums align-top", flow.enabled ? "text-muted-foreground" : "text-muted-foreground/60")}>
+                      {i + 1}
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <NatFlowDiagram flow={flow} />
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <span className="inline-flex rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium">
+                        {NAT_FLOW_KIND_LABELS[flow.kind]}
+                      </span>
+                      {!flow.enabled && (
+                        <span className="mt-1.5 block rounded border border-muted-foreground/30 bg-muted/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground w-fit">
+                          Disabled
+                        </span>
+                      )}
+                    </td>
+                    <td className="max-w-[360px] px-3 py-3 align-top text-xs text-muted-foreground">
+                      {flow.summary}
+                    </td>
+                    <td className="px-3 py-3 align-top text-xs">
+                      {flow.inboundRuleName ?? "—"}
+                    </td>
+                    <td className="px-3 py-3 align-top text-xs">
+                      {flow.outboundRuleName ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+                {activeListTotal === 0 && tab === "natFlow" && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-10 text-center text-sm text-muted-foreground">
+                      <CircleDot className="mx-auto mb-2 h-5 w-5 opacity-40" />
+                      No NAT flows yet. Import NAT rules or sync from your firewall — flows are derived automatically.
                     </td>
                   </tr>
                 )}

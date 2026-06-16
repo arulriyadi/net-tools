@@ -21,6 +21,7 @@ SEED_CONNECTORS: list[dict] = [
         "poll_mode": "interval",
         "default_interval_minutes": 5,
         "parser_id": "mikrotik-rest-v1",
+        "router_os_version": "7",
         "status": "active",
     },
     {
@@ -46,6 +47,7 @@ SEED_CONNECTORS: list[dict] = [
         "poll_mode": "interval",
         "default_interval_minutes": 5,
         "parser_id": "mikrotik-api-v1",
+        "router_os_version": "6",
         "status": "active",
     },
     {
@@ -287,8 +289,8 @@ SEED_DEVICE_TYPES: list[dict] = [
         "vendor": "MikroTik",
         "category": "router",
         "description": (
-            "CCR, RB, and CHR routers on RouterOS v7+. Live datasets via REST API — "
-            "routing, interfaces, firewall filter/NAT, address lists."
+            "CCR, RB, and CHR routers. RouterOS v7+ via REST API; v6 via legacy API (TCP 8728). "
+            "Routing, interfaces, firewall filter/NAT, address lists."
         ),
         "capabilities": ROUTER_CAPS,
         "connector_ids": ["conn-mikrotik-rest", "conn-mikrotik-api", "conn-mikrotik-snmp"],

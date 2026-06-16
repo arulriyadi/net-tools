@@ -52,6 +52,23 @@ async def run_migrations(conn: AsyncConnection) -> None:
     )
     await conn.execute(
         text(
+            "ALTER TABLE data_connectors ADD COLUMN IF NOT EXISTS router_os_version VARCHAR(8)"
+        )
+    )
+    await conn.execute(
+        text(
+            "UPDATE data_connectors SET router_os_version = '7' "
+            "WHERE id = 'conn-mikrotik-rest' AND router_os_version IS NULL"
+        )
+    )
+    await conn.execute(
+        text(
+            "UPDATE data_connectors SET router_os_version = '6' "
+            "WHERE id = 'conn-mikrotik-api' AND router_os_version IS NULL"
+        )
+    )
+    await conn.execute(
+        text(
             """
             DO $$
             BEGIN

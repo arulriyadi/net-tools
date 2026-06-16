@@ -10,10 +10,23 @@ import {
   type DataConnectorRecord,
 } from "@/lib/resource-pool/data-connectors-mock"
 import type { DataMode, NetworkDeviceRecord } from "@/lib/resource-pool/device-inventory-ext"
+import { datasetFileHint } from "@/lib/resource-pool/device-inventory-ext"
 
 export type DatasetSourceType = "unset" | "import" | "live"
 
 export type SyncStatus = "idle" | "syncing" | "ok" | "error"
+
+export interface DatasetSyncLog {
+  at: string
+  status: "ok" | "error"
+  message: string
+  rowCount?: number | null
+  connectorId?: string | null
+  connectorName?: string | null
+  deviceIp?: string | null
+  durationMs?: number | null
+  details?: string[]
+}
 
 export interface DatasetBinding {
   capabilityKey: string
@@ -28,6 +41,7 @@ export interface DatasetBinding {
   lastSyncAt: string | null
   syncStatus: SyncStatus
   syncMessage?: string
+  lastSyncLog?: DatasetSyncLog
 }
 
 export const SOURCE_LABELS: Record<DatasetSourceType, string> = {
@@ -143,7 +157,7 @@ export function initDatasetBindings(
       capabilityKey: cap.key,
       label: cap.label,
       importKind: cap.importKind,
-      fileHint: cap.fileHint,
+      fileHint: datasetFileHint(cap, connectors),
       source,
       connectorId: source === "live" && connector ? connector.id : connector?.id ?? null,
       connectorName: source === "live" && connector ? connector.name : connector?.name ?? null,
@@ -172,6 +186,23 @@ export function rebuildDatasetBindings(
       (item) => item.capabilityKey === binding.capabilityKey,
     )
     if (!previous) return binding
+
+    const connectorChanged = previous.connectorId !== binding.connectorId
+    if (connectorChanged) {
+      if (previous.source === "import" && previous.importFileName) {
+        return {
+          ...binding,
+          source: "import",
+          importFileName: previous.importFileName,
+          rowCount: previous.rowCount,
+          lastSyncAt: previous.lastSyncAt,
+          syncStatus: previous.syncStatus,
+          syncMessage: previous.syncMessage,
+        }
+      }
+      return binding
+    }
+
     return {
       ...binding,
       source: previous.source,

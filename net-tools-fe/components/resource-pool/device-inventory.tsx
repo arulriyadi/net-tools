@@ -66,12 +66,14 @@ import {
   INVENTORY_CATEGORY_LABELS,
   isNetworkCategory,
   networkDeviceFromForm,
+  resolveDeviceTypeName,
   type DataMode,
   type InventoryCategory,
   type NetworkDeviceRecord,
 } from "@/lib/resource-pool/device-inventory-ext"
 import { fetchDataConnectors } from "@/lib/resource-pool/data-connectors-api"
 import { fetchDeviceTypes } from "@/lib/resource-pool/device-types-api"
+import type { DeviceTypeRecord } from "@/lib/resource-pool/device-types-mock"
 import {
   createNetworkDevice,
   deleteNetworkDevice,
@@ -142,7 +144,7 @@ function mapServerToDevice(server: ServerRecord, lastJob?: { finished_at: string
   }
 }
 
-function networkToDevice(record: NetworkDeviceRecord): Device {
+function networkToDevice(record: NetworkDeviceRecord, types: DeviceTypeRecord[] = []): Device {
   return {
     id: record.id,
     name: record.name,
@@ -152,7 +154,7 @@ function networkToDevice(record: NetworkDeviceRecord): Device {
     status: "unknown",
     category: record.category,
     deviceTypeId: record.deviceTypeId,
-    deviceTypeName: record.deviceTypeName,
+    deviceTypeName: resolveDeviceTypeName(record.deviceTypeId, types, record.deviceTypeName),
     dataMode: record.dataMode,
     role: "network",
     lastSeen: "—",
@@ -200,6 +202,7 @@ function CategoryBadge({ category }: { category: InventoryCategory }) {
 export function DeviceInventory() {
   const [devices, setDevices] = useState<Device[]>([])
   const [networkDevices, setNetworkDevices] = useState<NetworkDeviceRecord[]>([])
+  const [deviceTypes, setDeviceTypes] = useState<DeviceTypeRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [mounted, setMounted] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -217,8 +220,8 @@ export function DeviceInventory() {
   const devicesRef = useRef<Device[]>([])
 
   const allDevices = useMemo(
-    () => [...networkDevices.map(networkToDevice), ...devices],
-    [devices, networkDevices],
+    () => [...networkDevices.map((record) => networkToDevice(record, deviceTypes)), ...devices],
+    [devices, networkDevices, deviceTypes],
   )
 
   useEffect(() => {
@@ -229,13 +232,15 @@ export function DeviceInventory() {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [servers, jobs, network] = await Promise.all([
+      const [servers, jobs, network, types] = await Promise.all([
         fetchDevices(),
         fetchNginxJobs(),
         fetchNetworkDevices(),
+        fetchDeviceTypes(),
       ])
       const jobMap = latestJobByServer(jobs)
       setDevices(servers.map((s) => mapServerToDevice(s, jobMap.get(s.id))))
+      setDeviceTypes(types)
       setNetworkDevices(network)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load devices")
@@ -327,6 +332,7 @@ export function DeviceInventory() {
       if (editDevice && isNetworkCategory(editDevice.category) && isNetworkCategory(data.category)) {
         const [types, connectors] = await Promise.all([fetchDeviceTypes(), fetchDataConnectors()])
         const existing = networkDevices.find((d) => d.id === editDevice.id)
+        const type = types.find((item) => item.id === data.deviceTypeId)
         const record = networkDeviceFromForm(
           {
             name: data.name,
@@ -340,6 +346,7 @@ export function DeviceInventory() {
             connectorAuth: data.connectorAuth,
           },
           existing,
+          { deviceTypeName: type?.name, deviceTypes: types },
         )
         const datasetBindings = rebuildDatasetBindings(
           record,
@@ -445,7 +452,7 @@ export function DeviceInventory() {
             connectorAuth: data.connectorAuth,
           },
           undefined,
-          { deviceTypeName: type?.name },
+          { deviceTypeName: type?.name, deviceTypes: types },
         )
         const datasetBindings = initDatasetBindings(draft, {
           types,

@@ -43,8 +43,15 @@ async def fetch_rest_resource(
 
     url = _rest_url(host, port, resource, use_https=use_https)
     async with httpx.AsyncClient(timeout=REST_TIMEOUT, verify=False) as client:
-        response = await client.get(url, auth=(username, password))
-        response.raise_for_status()
+        try:
+            response = await client.get(url, auth=(username, password))
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(
+                f"HTTP {exc.response.status_code} from {url}: {exc.response.text[:200]}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ValueError(f"Request failed for {url}: {exc}") from exc
         data = response.json()
 
     if not isinstance(data, list):

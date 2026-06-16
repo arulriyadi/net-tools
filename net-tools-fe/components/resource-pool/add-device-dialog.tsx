@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import {
@@ -47,10 +47,12 @@ import {
   connectorAuthValid,
   DATA_MODE_HINTS,
   DATA_MODE_LABELS,
+  datasetFileHint,
   defaultDataMode,
   emptyConnectorAuth,
   INVENTORY_CATEGORY_LABELS,
   isNetworkCategory,
+  mergeConnectorAuthForType,
   type ConnectorAuthConfig,
   type DataMode,
   type InventoryCategory,
@@ -109,6 +111,42 @@ function buildConnectorAuthMap(connectors: DataConnectorRecord[]): Record<string
   return Object.fromEntries(connectors.map((conn) => [conn.id, emptyConnectorAuth(conn)]))
 }
 
+function formSessionKey(mode: string, initial?: Partial<DeviceFormData>): string {
+  return [
+    mode,
+    initial?.name ?? "",
+    initial?.ip ?? "",
+    initial?.deviceTypeId ?? "",
+    initial?.hostname ?? "",
+  ].join("|")
+}
+
+function applyDeviceTypeSelection(
+  prev: DeviceFormData,
+  typeId: string,
+  deviceTypes: DeviceTypeRecord[],
+  connectors: DataConnectorRecord[],
+): DeviceFormData {
+  const type = findDeviceType(typeId, deviceTypes)
+  const nextConnectors = resolveConnectors(type?.connectorIds ?? [], connectors)
+  const next: DeviceFormData = {
+    ...prev,
+    deviceTypeId: typeId,
+    dataMode: defaultDataMode(typeId, nextConnectors),
+    connectorAuth: mergeConnectorAuthForType(prev.connectorAuth, nextConnectors),
+    enabledDatasetKeys: type ? defaultDeviceDatasetKeys(type) : [],
+  }
+  if (type && !next.os.trim()) {
+    next.os =
+      type.category === "firewall"
+        ? "PAN-OS"
+        : type.category === "router"
+          ? "RouterOS / IOS"
+          : "EOS"
+  }
+  return next
+}
+
 interface AddDeviceDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -142,6 +180,26 @@ export function AddDeviceDialog({
   const [deviceTypes, setDeviceTypes] = useState<DeviceTypeRecord[]>([])
   const [connectors, setConnectors] = useState<DataConnectorRecord[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
+  const formSessionRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      formSessionRef.current = null
+      return
+    }
+
+    const session = formSessionKey(mode, initialForm)
+    if (formSessionRef.current === session) return
+    formSessionRef.current = session
+
+    setForm({
+      ...emptyForm,
+      ...initialForm,
+      connectorAuth: initialForm?.connectorAuth ?? {},
+      enabledDatasetKeys: initialForm?.enabledDatasetKeys ?? [],
+      sshKeyId: initialForm?.sshKeyId ?? "",
+    })
+  }, [open, mode, initialForm])
 
   useEffect(() => {
     if (!open) return
@@ -152,15 +210,45 @@ export function AddDeviceDialog({
         setKeys(loadedKeys)
         setDeviceTypes(loadedTypes)
         setConnectors(loadedConnectors)
-        const matchedKey =
-          loadedKeys.find((k) => k.path === initialForm?.sshKeyPath) ||
-          loadedKeys.find((k) => initialForm?.sshKeyId && k.id === initialForm.sshKeyId)
-        setForm({
-          ...emptyForm,
-          ...initialForm,
-          connectorAuth: initialForm?.connectorAuth ?? {},
-          enabledDatasetKeys: initialForm?.enabledDatasetKeys ?? [],
-          sshKeyId: matchedKey?.id || initialForm?.sshKeyId || loadedKeys[0]?.id || "",
+        setForm((prev) => {
+          const matchedKey =
+            loadedKeys.find((k) => k.path === initialForm?.sshKeyPath) ||
+            loadedKeys.find((k) => initialForm?.sshKeyId && k.id === initialForm.sshKeyId)
+          const sshKeyId =
+            prev.sshKeyId ||
+            matchedKey?.id ||
+            initialForm?.sshKeyId ||
+            loadedKeys[0]?.id ||
+            ""
+
+          if (!prev.deviceTypeId || loadedTypes.length === 0) {
+            return sshKeyId === prev.sshKeyId ? prev : { ...prev, sshKeyId }
+          }
+
+          const type = findDeviceType(prev.deviceTypeId, loadedTypes)
+          if (!type) {
+            return sshKeyId === prev.sshKeyId ? prev : { ...prev, sshKeyId }
+          }
+
+          const typeConnectors = resolveConnectors(type.connectorIds, loadedConnectors)
+          const sessionMatchesInitial =
+            formSessionRef.current === formSessionKey(mode, initialForm) &&
+            initialForm?.deviceTypeId === prev.deviceTypeId
+
+          if (sessionMatchesInitial && (initialForm?.enabledDatasetKeys?.length ?? 0) > 0) {
+            return sshKeyId === prev.sshKeyId
+              ? prev
+              : {
+                  ...prev,
+                  sshKeyId,
+                  connectorAuth: mergeConnectorAuthForType(
+                    initialForm?.connectorAuth ?? prev.connectorAuth,
+                    typeConnectors,
+                  ),
+                }
+          }
+
+          return applyDeviceTypeSelection(prev, prev.deviceTypeId, loadedTypes, loadedConnectors)
         })
       })
       .catch(() => {
@@ -172,7 +260,7 @@ export function AddDeviceDialog({
         setKeysLoading(false)
         setCatalogLoading(false)
       })
-  }, [open, initialForm?.name, initialForm?.ip, initialForm?.sshKeyPath, initialForm?.deviceTypeId])
+  }, [open, mode, initialForm])
 
   const selectedType = useMemo(
     () => (form.deviceTypeId ? findDeviceType(form.deviceTypeId, deviceTypes) : undefined),
@@ -217,29 +305,25 @@ export function AddDeviceDialog({
         } else if (isNetworkCategory(category)) {
           const types = deviceTypesForCategory(category, deviceTypes)
           const firstType = types[0]
-          next.deviceTypeId = firstType?.id ?? ""
-          const typeConnectors = resolveConnectors(firstType?.connectorIds ?? [], connectors)
-          next.dataMode = defaultDataMode(firstType?.id ?? "", typeConnectors)
-          next.connectorAuth = buildConnectorAuthMap(typeConnectors)
-          next.enabledDatasetKeys = firstType ? defaultDeviceDatasetKeys(firstType) : []
+          if (firstType) {
+            return applyDeviceTypeSelection(
+              { ...next, category },
+              firstType.id,
+              deviceTypes,
+              connectors,
+            )
+          }
+          next.category = category
+          next.deviceTypeId = ""
+          next.dataMode = "datastore"
+          next.connectorAuth = {}
+          next.enabledDatasetKeys = []
+          return next
         }
       }
 
       if (field === "deviceTypeId") {
-        const typeId = value as string
-        const type = findDeviceType(typeId, deviceTypes)
-        const typeConnectors = resolveConnectors(type?.connectorIds ?? [], connectors)
-        next.dataMode = defaultDataMode(typeId, typeConnectors)
-        next.connectorAuth = buildConnectorAuthMap(typeConnectors)
-        next.enabledDatasetKeys = type ? defaultDeviceDatasetKeys(type) : []
-        if (type && !next.os.trim()) {
-          next.os =
-            type.category === "firewall"
-              ? "PAN-OS"
-              : type.category === "router"
-                ? "RouterOS / IOS"
-                : "EOS"
-        }
+        return applyDeviceTypeSelection(prev, value as string, deviceTypes, connectors)
       }
 
       return next
@@ -455,10 +539,15 @@ export function AddDeviceDialog({
           </div>
 
           {selectedType && networkCategory && (
-            <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+            <div
+              key={form.deviceTypeId}
+              className="rounded-lg border border-border bg-muted/20 p-4 space-y-3"
+            >
               <div>
                 <p className="text-sm font-medium text-foreground">Type summary</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
+                  <span className="font-medium text-foreground">{selectedType.name}</span>
+                  {" · "}
                   {selectedType.vendor}
                   {selectedType.description ? ` · ${selectedType.description}` : ""}
                 </p>
@@ -496,7 +585,7 @@ export function AddDeviceDialog({
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">{cap.description}</p>
                             <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
-                              {cap.fileHint}
+                              {datasetFileHint(cap, typeConnectors)}
                             </p>
                           </div>
                         </label>

@@ -1,6 +1,7 @@
-import type { DeviceCategory } from "@/lib/resource-pool/device-types-mock"
+import type { DeviceCategory, DeviceTypeCapability, DeviceTypeRecord } from "@/lib/resource-pool/device-types-mock"
 import { CATEGORY_LABELS, findDeviceType } from "@/lib/resource-pool/device-types-mock"
 import type { DataConnectorRecord } from "@/lib/resource-pool/data-connectors-mock"
+import { mikrotikConnectorHint } from "@/lib/resource-pool/mikrotik-dataset-api"
 
 export type SshAuthMethod = "password" | "key"
 
@@ -75,6 +76,36 @@ export function emptyConnectorAuth(conn: DataConnectorRecord): ConnectorAuthConf
   }
 }
 
+/** Dataset endpoint hint scoped to connectors mapped on the selected device type. */
+export function datasetFileHint(
+  cap: Pick<DeviceTypeCapability, "key" | "fileHint">,
+  typeConnectors: DataConnectorRecord[],
+): string {
+  const match = typeConnectors.find((conn) => conn.capabilityKeys.includes(cap.key))
+  if (!match) return cap.fileHint
+  if (
+    match.vendor.toLowerCase().includes("mikrotik") &&
+    (match.protocol === "rest" || match.protocol === "api")
+  ) {
+    return mikrotikConnectorHint(cap.key, match.protocol)
+  }
+  return cap.fileHint
+}
+
+export function mergeConnectorAuthForType(
+  prevAuth: Record<string, ConnectorAuthConfig>,
+  typeConnectors: DataConnectorRecord[],
+): Record<string, ConnectorAuthConfig> {
+  return Object.fromEntries(
+    typeConnectors.map((conn) => [
+      conn.id,
+      prevAuth[conn.id]
+        ? { ...emptyConnectorAuth(conn), ...prevAuth[conn.id], connectorId: conn.id }
+        : emptyConnectorAuth(conn),
+    ]),
+  )
+}
+
 export interface NetworkDeviceRecord {
   id: string
   name: string
@@ -96,6 +127,14 @@ export interface NetworkDeviceRecord {
 /** @deprecated use NetworkDeviceRecord */
 export type NetworkDeviceMockRecord = NetworkDeviceRecord
 
+export function resolveDeviceTypeName(
+  deviceTypeId: string,
+  deviceTypes?: DeviceTypeRecord[],
+  fallback?: string,
+): string {
+  return findDeviceType(deviceTypeId, deviceTypes)?.name ?? fallback ?? "Unknown type"
+}
+
 export function networkDeviceFromForm(
   form: {
     name: string
@@ -111,10 +150,17 @@ export function networkDeviceFromForm(
   existing?: NetworkDeviceRecord,
   options?: {
     deviceTypeName?: string
+    deviceTypes?: DeviceTypeRecord[]
     datasetBindings?: NetworkDeviceRecord["datasetBindings"]
   },
 ): NetworkDeviceRecord {
-  const type = findDeviceType(form.deviceTypeId)
+  const type = findDeviceType(form.deviceTypeId, options?.deviceTypes)
+  const typeChanged = Boolean(existing && existing.deviceTypeId !== form.deviceTypeId)
+  const deviceTypeName =
+    options?.deviceTypeName ??
+    type?.name ??
+    (typeChanged ? "Unknown type" : existing?.deviceTypeName) ??
+    "Unknown type"
   return {
     id: existing?.id ?? "",
     name: form.name.trim(),
@@ -122,7 +168,7 @@ export function networkDeviceFromForm(
     ip: form.ip.trim(),
     category: form.category,
     deviceTypeId: form.deviceTypeId,
-    deviceTypeName: options?.deviceTypeName ?? type?.name ?? existing?.deviceTypeName ?? "Unknown type",
+    deviceTypeName,
     dataMode: form.dataMode,
     os: form.os.trim(),
     notes: form.notes.trim(),

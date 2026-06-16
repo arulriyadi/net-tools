@@ -22,6 +22,13 @@ export type PollMode = "interval" | "on_demand"
 
 export type ConnectorStatus = "active" | "draft"
 
+export type RouterOsVersion = "6" | "7"
+
+export const ROUTER_OS_VERSION_LABELS: Record<RouterOsVersion, string> = {
+  "6": "RouterOS 6.x (legacy API)",
+  "7": "RouterOS 7+ (REST API)",
+}
+
 export interface ConnectorCapabilityOption {
   key: string
   label: string
@@ -42,6 +49,7 @@ export interface DataConnectorRecord {
   pollMode: PollMode
   defaultIntervalMinutes: number | null
   parserId: string
+  routerOsVersion: RouterOsVersion | ""
   status: ConnectorStatus
   typeCount: number
   createdAt: string
@@ -63,6 +71,7 @@ export interface DataConnectorFormData {
   pollMode: PollMode
   defaultIntervalMinutes: string
   parserId: string
+  routerOsVersion: RouterOsVersion | ""
   status: ConnectorStatus
 }
 
@@ -138,6 +147,7 @@ export const initialDataConnectors: DataConnectorRecord[] = [
     pollMode: "interval",
     defaultIntervalMinutes: 5,
     parserId: "mikrotik-rest-v1",
+    routerOsVersion: "7",
     status: "active",
     typeCount: 1,
     createdAt: "2026-06-10T08:00:00Z",
@@ -160,6 +170,7 @@ export const initialDataConnectors: DataConnectorRecord[] = [
     pollMode: "interval",
     defaultIntervalMinutes: 5,
     parserId: "mikrotik-api-v1",
+    routerOsVersion: "6",
     status: "active",
     typeCount: 1,
     createdAt: "2026-06-16T17:30:00Z",
@@ -272,6 +283,7 @@ export function emptyConnectorForm(): DataConnectorFormData {
     pollMode: "interval",
     defaultIntervalMinutes: "5",
     parserId: "",
+    routerOsVersion: "",
     status: "draft",
   }
 }
@@ -292,6 +304,7 @@ export function formFromConnector(record: DataConnectorRecord): DataConnectorFor
     defaultIntervalMinutes:
       record.defaultIntervalMinutes != null ? String(record.defaultIntervalMinutes) : "",
     parserId: record.parserId,
+    routerOsVersion: record.routerOsVersion ?? "",
     status: record.status,
   }
   base.endpointScheme = endpointSchemeFromRecord(base)
@@ -322,6 +335,7 @@ export function recordFromConnectorForm(
     pollMode: form.pollMode,
     defaultIntervalMinutes: form.pollMode === "interval" && Number.isFinite(interval) ? interval : null,
     parserId: form.parserId.trim() || "custom-parser",
+    routerOsVersion: form.routerOsVersion || "",
     status: form.status,
     typeCount: existing?.typeCount ?? 0,
     createdAt: existing?.createdAt ?? now,

@@ -1,10 +1,5 @@
-import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
-import { DnsZonesManagement } from "@/components/dns/dns-zones"
+import { redirect } from "next/navigation"
 
-export default function DnsZonesPage() {
-  return (
-    <DashboardLayout>
-      <DnsZonesManagement />
-    </DashboardLayout>
-  )
+export default function DnsZonesRedirect() {
+  redirect("/dns")
 }

@@ -11,6 +11,10 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import DataConnector, NetworkDevice
 from app.services.mikrotik_api_client import MikrotikApiClient
+from app.services.mikrotik_connector_match import (
+    is_mikrotik_legacy_api_connector,
+    is_mikrotik_rest_connector,
+)
 from app.services.mikrotik_rest_client import fetch_mikrotik_rest_capability
 
 
@@ -75,7 +79,14 @@ async def fetch_live_dataset(
 
     parser_id = connector.parser_id or ""
 
-    if parser_id == "mikrotik-rest-v1" or connector.id == "conn-mikrotik-rest":
+    if is_mikrotik_rest_connector(connector):
+        if getattr(connector, "router_os_version", None) == "6":
+            raise DatasetSyncError(
+                "RouterOS v6 has no REST API (/rest/* returns 404). "
+                "Use the MikroTik RouterOS API connector (TCP 8728, parser mikrotik-api-v1) "
+                "and bind conn-mikrotik-api on the device type.",
+                status_code=400,
+            )
         port = _parse_port(auth, connector.default_port)
         try:
             return await fetch_mikrotik_rest_capability(
@@ -88,8 +99,10 @@ async def fetch_live_dataset(
             )
         except httpx.HTTPError as exc:
             raise DatasetSyncError(f"MikroTik REST request failed: {exc}", status_code=502) from exc
+        except ValueError as exc:
+            raise DatasetSyncError(str(exc), status_code=502) from exc
 
-    if parser_id == "mikrotik-api-v1" or connector.id == "conn-mikrotik-api":
+    if is_mikrotik_legacy_api_connector(connector):
         port = _parse_port(auth, connector.default_port or 8728) or 8728
         use_ssl = (connector.endpoint_pattern or "").lower().startswith("tls://")
 
@@ -120,6 +133,10 @@ def apply_sync_result(
     payload: Any,
     *,
     error: str | None = None,
+    log_lines: list[str] | None = None,
+    row_count: int | None = None,
+    connector: DataConnector | None = None,
+    duration_ms: int | None = None,
 ) -> None:
     bindings = list(device.dataset_bindings or [])
     dataset_data = dict(device.dataset_data or {})
@@ -132,15 +149,28 @@ def apply_sync_result(
             next_bindings.append(dict(binding))
             continue
         patch: dict[str, Any] = dict(binding)
+        details = log_lines or []
         if error:
             patch["syncStatus"] = "error"
             patch["syncMessage"] = error
         else:
             dataset_data[capability_key] = payload
-            patch["rowCount"] = count_dataset_rows(payload)
+            counted = row_count if row_count is not None else count_dataset_rows(payload)
+            patch["rowCount"] = counted
             patch["lastSyncAt"] = now
             patch["syncStatus"] = "ok"
             patch["syncMessage"] = None
+        patch["lastSyncLog"] = {
+            "at": now,
+            "status": "error" if error else "ok",
+            "message": error or f"Synced {patch.get('rowCount', 0)} rows",
+            "rowCount": patch.get("rowCount"),
+            "connectorId": connector.id if connector else binding.get("connectorId"),
+            "connectorName": binding.get("connectorName"),
+            "deviceIp": device.ip,
+            "durationMs": duration_ms,
+            "details": details,
+        }
         next_bindings.append(patch)
         updated = True
 
@@ -159,6 +189,8 @@ async def sync_device_dataset(
     connector: DataConnector,
     capability_key: str,
 ) -> tuple[Any, int]:
+    import time
+
     binding = _binding_for_capability(device, capability_key)
     if binding.get("source") != "live":
         raise DatasetSyncError(
@@ -174,6 +206,51 @@ async def sync_device_dataset(
     if connector_id != connector.id:
         raise DatasetSyncError("Connector mismatch for dataset binding.", status_code=400)
 
-    payload = await fetch_live_dataset(device, connector, capability_key)
-    apply_sync_result(device, capability_key, payload)
-    return payload, count_dataset_rows(payload)
+    log_lines = [
+        f"Device: {device.name} ({device.ip})",
+        f"Connector: {connector.name} [{connector.id}]",
+        f"Parser: {connector.parser_id or connector.protocol}",
+        f"Capability: {capability_key}",
+    ]
+    started = time.monotonic()
+
+    try:
+        payload = await fetch_live_dataset(device, connector, capability_key)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        rows = count_dataset_rows(payload)
+        log_lines.append(f"Fetched {rows} rows in {duration_ms}ms")
+        apply_sync_result(
+            device,
+            capability_key,
+            payload,
+            log_lines=log_lines,
+            row_count=rows,
+            connector=connector,
+            duration_ms=duration_ms,
+        )
+        return payload, rows
+    except DatasetSyncError as exc:
+        log_lines.append(f"ERROR: {exc}")
+        apply_sync_result(
+            device,
+            capability_key,
+            None,
+            error=str(exc),
+            log_lines=log_lines,
+            connector=connector,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+        raise
+    except Exception as exc:
+        message = f"Sync failed: {exc}"
+        log_lines.append(f"ERROR: {message}")
+        apply_sync_result(
+            device,
+            capability_key,
+            None,
+            error=message,
+            log_lines=log_lines,
+            connector=connector,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+        raise DatasetSyncError(message, status_code=502) from exc

@@ -1,4 +1,4 @@
-import type { ConnectorProtocol, DataConnectorFormData } from "@/lib/resource-pool/data-connectors-mock"
+import type { ConnectorProtocol, DataConnectorFormData, RouterOsVersion } from "@/lib/resource-pool/data-connectors-mock"
 
 /** REST URL scheme — http or https only */
 export type RestUrlScheme = "http" | "https"
@@ -22,17 +22,39 @@ const REST_PATH_BY_PARSER: Record<string, string> = {
 }
 
 export function isMikrotikRestConnector(form: Pick<DataConnectorFormData, "vendor" | "parserId" | "protocol">) {
+  const parserId = (form.parserId || "").toLowerCase()
   return (
     form.protocol === "rest" &&
-    (form.parserId === "mikrotik-rest-v1" || form.vendor.toLowerCase().includes("mikrotik"))
+    (parserId === "mikrotik-rest-v1" ||
+      parserId === "mikrotik-rest" ||
+      form.vendor.toLowerCase().includes("mikrotik"))
   )
 }
 
 export function isMikrotikApiConnector(form: Pick<DataConnectorFormData, "vendor" | "parserId" | "protocol">) {
+  const parserId = (form.parserId || "").toLowerCase()
   return (
     form.protocol === "api" &&
-    (form.parserId === "mikrotik-api-v1" || form.vendor.toLowerCase().includes("mikrotik"))
+    (parserId === "mikrotik-api-v1" ||
+      parserId === "mikrotik-api" ||
+      form.vendor.toLowerCase().includes("mikrotik"))
   )
+}
+
+export function isMikrotikConnector(form: Pick<DataConnectorFormData, "vendor" | "parserId">) {
+  return (
+    form.vendor.toLowerCase().includes("mikrotik") ||
+    form.parserId.startsWith("mikrotik-")
+  )
+}
+
+export function defaultRouterOsVersion(
+  form: Pick<DataConnectorFormData, "protocol" | "vendor" | "parserId">,
+): RouterOsVersion | "" {
+  if (!isMikrotikConnector(form)) return ""
+  if (form.protocol === "rest" || parserId === "mikrotik-rest-v1" || parserId === "mikrotik-rest") return "7"
+  if (form.protocol === "api" || parserId === "mikrotik-api-v1" || parserId === "mikrotik-api") return "6"
+  return "7"
 }
 
 /** REST and most HTTP-based connectors use http/https dropdown */
@@ -143,6 +165,11 @@ export function applyProtocolDefaults(form: DataConnectorFormData, protocol: Con
     next.defaultPort = defaultPortForApiTransport(transport)
   } else {
     next.endpointScheme = ""
+  }
+  if (isMikrotikConnector(next)) {
+    next.routerOsVersion = defaultRouterOsVersion(next)
+  } else {
+    next.routerOsVersion = ""
   }
   return next
 }

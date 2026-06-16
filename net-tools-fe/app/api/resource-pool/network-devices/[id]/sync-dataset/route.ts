@@ -1,33 +1,22 @@
 import { NextResponse } from "next/server"
-import { NettoolsApiError, nettoolsFetch } from "@/lib/nettools-api"
-import type {
-  NetworkDeviceApiRecord,
-} from "@/lib/resource-pool/network-devices-api"
+import { getNettoolsApiUrl } from "@/lib/nettools-api"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-interface SyncDatasetApiResponse {
-  device: NetworkDeviceApiRecord
-  row_count: number
-}
-
 export async function POST(request: Request, context: RouteContext) {
-  try {
-    const { id } = await context.params
-    const body = (await request.json()) as { capability_key: string }
-    const result = await nettoolsFetch<SyncDatasetApiResponse>(
-      `/api/network-devices/${id}/sync-dataset`,
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-      },
-    )
-    return NextResponse.json(result)
-  } catch (err) {
-    const status = err instanceof NettoolsApiError ? err.status : 500
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to sync dataset" },
-      { status },
-    )
-  }
+  const { id } = await context.params
+  const body = await request.json()
+
+  const res = await fetch(`${getNettoolsApiUrl()}/api/network-devices/${id}/sync-dataset`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  })
+
+  const data = await res.json()
+  return NextResponse.json(data, { status: res.status })
 }

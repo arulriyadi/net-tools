@@ -9,6 +9,7 @@ import {
   Link2,
   Loader2,
   RefreshCw,
+  ScrollText,
   Settings2,
   Upload,
 } from "lucide-react"
@@ -33,6 +34,7 @@ import { Label } from "@/components/ui/label"
 import {
   DATA_MODE_LABELS,
   INVENTORY_CATEGORY_LABELS,
+  resolveDeviceTypeName,
   type DataMode,
   type InventoryCategory,
 } from "@/lib/resource-pool/device-inventory-ext"
@@ -41,6 +43,7 @@ import {
   importDatasetCsv,
   patchDatasetBinding,
   syncDatasetLive,
+  SyncDatasetError,
 } from "@/lib/resource-pool/network-devices-api"
 import { isPaloImportCapability, parsePaloCsvImport } from "@/lib/firewall/palo-csv-import"
 import { fetchDataConnectors } from "@/lib/resource-pool/data-connectors-api"
@@ -53,6 +56,7 @@ import {
   SOURCE_LABELS,
   type DatasetBinding,
   type DatasetSourceType,
+  type DatasetSyncLog,
 } from "@/lib/resource-pool/device-overview-mock"
 import { PROTOCOL_LABELS } from "@/lib/resource-pool/data-connectors-mock"
 import type { DataConnectorRecord } from "@/lib/resource-pool/data-connectors-mock"
@@ -89,6 +93,45 @@ function SourceBadge({ source }: { source: DatasetSourceType }) {
   )
 }
 
+function SyncStatusBadge({ status }: { status: DatasetBinding["syncStatus"] }) {
+  if (status === "ok") {
+    return (
+      <span className="inline-flex rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[10px] font-medium text-success">
+        OK
+      </span>
+    )
+  }
+  if (status === "error") {
+    return (
+      <span className="inline-flex rounded-md border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+        Error
+      </span>
+    )
+  }
+  if (status === "syncing") {
+    return (
+      <span className="inline-flex rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+        Syncing
+      </span>
+    )
+  }
+  return null
+}
+
+function bindingLogPreview(binding: DatasetBinding): DatasetSyncLog | null {
+  if (binding.lastSyncLog) return binding.lastSyncLog
+  if (!binding.syncMessage && !binding.lastSyncAt) return null
+  return {
+    at: binding.lastSyncAt ?? new Date().toISOString(),
+    status: binding.syncStatus === "error" ? "error" : "ok",
+    message: binding.syncMessage ?? "No message recorded",
+    rowCount: binding.rowCount,
+    connectorId: binding.connectorId,
+    connectorName: binding.connectorName,
+    details: binding.syncMessage ? [binding.syncMessage] : [],
+  }
+}
+
 export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
   const [networkDevice, setNetworkDevice] = useState<NetworkDeviceRecord | null>(null)
   const [bindings, setBindings] = useState<DatasetBinding[]>([])
@@ -101,6 +144,7 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
   const [configSource, setConfigSource] = useState<DatasetSourceType>("unset")
   const [configConnectorId, setConfigConnectorId] = useState<string>("")
   const [syncingKey, setSyncingKey] = useState<string | null>(null)
+  const [logTarget, setLogTarget] = useState<DatasetBinding | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importTargetKey, setImportTargetKey] = useState<string | null>(null)
 
@@ -170,12 +214,17 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
 
   const header = useMemo(() => {
     if (networkDevice) {
+      const typeName = resolveDeviceTypeName(
+        networkDevice.deviceTypeId,
+        deviceTypes,
+        networkDevice.deviceTypeName,
+      )
       return {
         name: networkDevice.name,
         hostname: networkDevice.hostname,
         ip: networkDevice.ip,
         category: networkDevice.category as InventoryCategory,
-        deviceTypeName: networkDevice.deviceTypeName,
+        deviceTypeName: typeName,
         dataMode: networkDevice.dataMode,
         os: networkDevice.os || "—",
       }
@@ -192,7 +241,7 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
       }
     }
     return null
-  }, [networkDevice, serverCtx])
+  }, [networkDevice, serverCtx, deviceTypes])
 
   const persistBindingPatch = async (capabilityKey: string, patch: Partial<DatasetBinding>) => {
     if (!networkDevice) return
@@ -262,9 +311,17 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
       setNetworkDevice(updated)
       setBindings(updated.datasetBindings ?? [])
     } catch (err) {
+      const message = err instanceof Error ? err.message : "Import failed"
+      const now = new Date().toISOString()
       await persistBindingPatch(capabilityKey, {
         syncStatus: "error",
-        syncMessage: err instanceof Error ? err.message : "Import failed",
+        syncMessage: message,
+        lastSyncLog: {
+          at: now,
+          status: "error",
+          message,
+          details: [message],
+        },
       })
     }
     setImportTargetKey(null)
@@ -286,10 +343,24 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
       setNetworkDevice(device)
       setBindings(device.datasetBindings ?? [])
     } catch (err) {
-      await persistBindingPatch(binding.capabilityKey, {
-        syncStatus: "error",
-        syncMessage: err instanceof Error ? err.message : "Sync failed",
-      })
+      if (err instanceof SyncDatasetError && err.device) {
+        setNetworkDevice(err.device)
+        setBindings(err.device.datasetBindings ?? [])
+      } else {
+        const message = err instanceof Error ? err.message : "Sync failed"
+        await persistBindingPatch(binding.capabilityKey, {
+          syncStatus: "error",
+          syncMessage: message,
+          lastSyncLog: {
+            at: new Date().toISOString(),
+            status: "error",
+            message,
+            connectorId: binding.connectorId,
+            connectorName: binding.connectorName,
+            details: [message],
+          },
+        })
+      }
     } finally {
       setSyncingKey(null)
     }
@@ -485,14 +556,24 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                      {binding.syncStatus === "syncing" ? (
-                        <span className="inline-flex items-center gap-1">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Syncing…
-                        </span>
-                      ) : (
-                        formatSyncTime(binding.lastSyncAt)
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {binding.syncStatus === "syncing" ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Syncing…
+                          </span>
+                        ) : (
+                          <>
+                            <span>{formatSyncTime(binding.lastSyncAt)}</span>
+                            <SyncStatusBadge status={binding.syncStatus} />
+                          </>
+                        )}
+                        {binding.syncStatus === "error" && binding.syncMessage && (
+                          <span className="max-w-[180px] truncate text-destructive" title={binding.syncMessage}>
+                            {binding.syncMessage}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {binding.rowCount != null ? binding.rowCount.toLocaleString() : "—"}
@@ -538,6 +619,16 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
                             )}
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="View latest sync log"
+                          disabled={!bindingLogPreview(binding)}
+                          onClick={() => setLogTarget(binding)}
+                        >
+                          <ScrollText className="h-4 w-4" />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -648,6 +739,82 @@ export function DeviceOverviewPanel({ deviceId }: DeviceOverviewPanelProps) {
               }
             >
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!logTarget} onOpenChange={(open) => !open && setLogTarget(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sync log</DialogTitle>
+            <DialogDescription>
+              {logTarget?.label} — latest run for <strong>{header.name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          {logTarget && (() => {
+            const log = bindingLogPreview(logTarget)
+            if (!log) {
+              return (
+                <p className="text-sm text-muted-foreground py-4">No sync log recorded yet. Run Sync to generate one.</p>
+              )
+            }
+            return (
+              <div className="space-y-3 py-1 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={cn(
+                      "inline-flex rounded-md border px-2 py-0.5 text-xs font-medium",
+                      log.status === "ok"
+                        ? "border-success/30 bg-success/10 text-success"
+                        : "border-destructive/30 bg-destructive/10 text-destructive",
+                    )}
+                  >
+                    {log.status === "ok" ? "Success" : "Failed"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{formatSyncTime(log.at)}</span>
+                </div>
+                <p className="font-medium">{log.message}</p>
+                <dl className="grid grid-cols-2 gap-2 text-xs">
+                  {log.connectorName && (
+                    <>
+                      <dt className="text-muted-foreground">Connector</dt>
+                      <dd>{log.connectorName}</dd>
+                    </>
+                  )}
+                  {log.deviceIp && (
+                    <>
+                      <dt className="text-muted-foreground">Device IP</dt>
+                      <dd className="font-mono">{log.deviceIp}</dd>
+                    </>
+                  )}
+                  {log.rowCount != null && (
+                    <>
+                      <dt className="text-muted-foreground">Rows</dt>
+                      <dd className="tabular-nums">{log.rowCount.toLocaleString()}</dd>
+                    </>
+                  )}
+                  {log.durationMs != null && (
+                    <>
+                      <dt className="text-muted-foreground">Duration</dt>
+                      <dd className="tabular-nums">{log.durationMs} ms</dd>
+                    </>
+                  )}
+                </dl>
+                {log.details && log.details.length > 0 && (
+                  <div className="rounded-md border border-border bg-muted/30 p-3">
+                    <div className="mb-2 text-xs font-medium text-muted-foreground">Details</div>
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground">
+                      {log.details.join("\n")}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLogTarget(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

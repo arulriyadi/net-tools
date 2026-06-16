@@ -1,10 +1,5 @@
-import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
-import { DnsRecordsManagement } from "@/components/dns/dns-records"
+import { redirect } from "next/navigation"
 
-export default function DnsRecordsPage() {
-  return (
-    <DashboardLayout>
-      <DnsRecordsManagement />
-    </DashboardLayout>
-  )
+export default function DnsRecordsRedirect() {
+  redirect("/dns")
 }

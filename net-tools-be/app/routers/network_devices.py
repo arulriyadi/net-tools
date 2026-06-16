@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,8 +85,7 @@ async def update_network_device(
     updates = payload.model_dump(exclude_unset=True)
     if "device_type_id" in updates and updates["device_type_id"] is not None:
         device_type = await _validate_device_type(db, updates["device_type_id"])
-        if "device_type_name" not in updates:
-            updates["device_type_name"] = device_type.name
+        updates["device_type_name"] = device_type.name
 
     for field, value in updates.items():
         setattr(device, field, value)
@@ -140,7 +140,16 @@ async def sync_network_device_dataset(
     try:
         _, row_count = await sync_device_dataset(device, connector, payload.capability_key)
     except DatasetSyncError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        await db.commit()
+        await db.refresh(device)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": str(exc),
+                "device": NetworkDeviceRead.model_validate(device).model_dump(mode="json"),
+                "row_count": 0,
+            },
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Sync failed: {exc}") from exc
 

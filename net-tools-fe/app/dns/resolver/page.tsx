@@ -1,10 +1,5 @@
-import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
-import { DnsResolver } from "@/components/dns/dns-resolver"
+import { redirect } from "next/navigation"
 
-export default function DnsResolverPage() {
-  return (
-    <DashboardLayout>
-      <DnsResolver />
-    </DashboardLayout>
-  )
+export default function DnsResolverRedirect() {
+  redirect("/dns")
 }

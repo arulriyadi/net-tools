@@ -2,6 +2,12 @@ export type FwDeviceStatus = "online" | "offline" | "degraded"
 export type DataSourceType = "live-api" | "csv-import" | "manual" | "none"
 export type RuleAction = "allow" | "deny" | "drop"
 export type NatType = "source" | "destination" | "static"
+export type NatFlowKind = "bidirectional" | "outbound-only" | "inbound-only" | "multiple-nat"
+
+export interface NatFlowAddress {
+  ip: string
+  label: string
+}
 export type RouteDestKind = "cidr" | "object"
 export type RouteNextHopType = "ip-address" | "next-vr" | "discard" | "none"
 export type AddressObjectType = "IP Netmask" | "IP Range" | "IP Wildcard" | "FQDN"
@@ -55,6 +61,31 @@ export interface NatRule {
   service: string
   translatedSrc: string
   translatedDst: string
+  enabled: boolean
+}
+
+/** Simplified NAT view: internal private IP mapped to external public IP. */
+export interface NatFlow {
+  id: string
+  kind: NatFlowKind
+  internalIp: string
+  internalLabel: string
+  externalIp: string
+  externalLabel: string
+  /** e.g. 10.110.32.249 <--> 202.58.242.227 */
+  flowLabel: string
+  /** Plain-language summary for non-technical users */
+  summary: string
+  inboundRuleName?: string
+  outboundRuleName?: string
+  inboundRuleId?: string
+  outboundRuleId?: string
+  /** DNAT target for multiple-nat (inbound leg). */
+  inboundInternal?: NatFlowAddress
+  /** SNAT sources for multiple-nat (outbound leg). */
+  outboundInternals?: NatFlowAddress[]
+  /** Original destinations from the outbound NAT rule (when grouped). */
+  outboundDestinations?: NatFlowAddress[]
   enabled: boolean
 }
 

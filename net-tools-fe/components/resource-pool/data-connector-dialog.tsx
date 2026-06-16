@@ -8,6 +8,7 @@ import {
   AUTH_METHOD_LABELS,
   POLL_MODE_LABELS,
   PROTOCOL_LABELS,
+  ROUTER_OS_VERSION_LABELS,
   capabilitiesForCategories,
   emptyConnectorForm,
   formFromConnector,
@@ -17,6 +18,7 @@ import {
   type DataConnectorFormData,
   type DataConnectorRecord,
   type PollMode,
+  type RouterOsVersion,
 } from "@/lib/resource-pool/data-connectors-mock"
 import { mikrotikConnectorHint } from "@/lib/resource-pool/mikrotik-dataset-api"
 import {
@@ -24,6 +26,8 @@ import {
   applyProtocolDefaults,
   API_TRANSPORT_LABELS,
   buildEndpointPattern,
+  defaultRouterOsVersion,
+  isMikrotikConnector,
   REST_SCHEME_LABELS,
   usesApiTransportDropdown,
   usesFixedEndpointPattern,
@@ -106,6 +110,11 @@ export function DataConnectorDialog({
         if (usesApiTransportDropdown(next) && !next.endpointScheme) {
           next.endpointScheme = "plain"
         }
+        if (isMikrotikConnector(next)) {
+          next.routerOsVersion = defaultRouterOsVersion(next)
+        } else {
+          next.routerOsVersion = ""
+        }
       }
 
       return next
@@ -116,6 +125,8 @@ export function DataConnectorDialog({
   const showRestScheme = usesRestSchemeDropdown(form.protocol)
   const showApiTransport = usesApiTransportDropdown(form)
   const showFixedEndpoint = usesFixedEndpointPattern(form)
+  const showRouterOsVersion = isMikrotikConnector(form)
+  const routerOsRestMismatch = showRouterOsVersion && form.routerOsVersion === "6" && form.protocol === "rest"
 
   const toggleCategory = (category: DeviceCategory) => {
     setForm((prev) => {
@@ -282,6 +293,37 @@ export function DataConnectorDialog({
                 onChange={(e) => update("parserId", e.target.value)}
               />
             </div>
+            {showRouterOsVersion && (
+              <div className="space-y-2">
+                <Label htmlFor="conn-ros-version">RouterOS version</Label>
+                <Select
+                  value={form.routerOsVersion || defaultRouterOsVersion(form)}
+                  onValueChange={(v) => update("routerOsVersion", v as RouterOsVersion)}
+                >
+                  <SelectTrigger id="conn-ros-version">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(ROUTER_OS_VERSION_LABELS) as RouterOsVersion[]).map((version) => (
+                      <SelectItem key={version} value={version}>
+                        {ROUTER_OS_VERSION_LABELS[version]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {routerOsRestMismatch && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                    RouterOS 6 has no REST API — /rest/* returns 404. Use protocol &quot;RouterOS / device
+                    API&quot; (TCP 8728, mikrotik-api-v1) instead.
+                  </p>
+                )}
+                {form.routerOsVersion === "6" && form.protocol === "api" && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Legacy API commands: /ip/route/print, /interface/print, /ip/firewall/filter/print, etc.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-2 sm:col-span-2">
               {showRestScheme && (
                 <>

@@ -22,6 +22,7 @@ export interface DataConnectorApiRecord {
   poll_mode: PollMode
   default_interval_minutes: number | null
   parser_id: string
+  router_os_version?: string | null
   status: ConnectorStatus
   type_count: number
   created_at: string
@@ -42,6 +43,7 @@ export interface DataConnectorCreatePayload {
   poll_mode: PollMode
   default_interval_minutes?: number | null
   parser_id?: string
+  router_os_version?: string | null
   status: ConnectorStatus
 }
 
@@ -60,6 +62,7 @@ export function mapConnectorFromApi(record: DataConnectorApiRecord): DataConnect
     pollMode: record.poll_mode,
     defaultIntervalMinutes: record.default_interval_minutes,
     parserId: record.parser_id,
+    routerOsVersion: (record.router_os_version as DataConnectorRecord["routerOsVersion"]) ?? "",
     status: record.status,
     typeCount: record.type_count,
     createdAt: record.created_at,
@@ -87,6 +90,7 @@ export function mapConnectorFormToPayload(form: DataConnectorFormData): DataConn
     default_interval_minutes:
       form.pollMode === "interval" && Number.isFinite(interval) ? interval : null,
     parser_id: form.parserId.trim() || "custom-parser",
+    router_os_version: form.routerOsVersion || null,
     status: form.status,
   }
 }

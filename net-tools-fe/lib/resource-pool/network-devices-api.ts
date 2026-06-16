@@ -143,6 +143,17 @@ export async function deleteNetworkDevice(id: string): Promise<void> {
   }
 }
 
+export class SyncDatasetError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public device?: NetworkDeviceRecord,
+  ) {
+    super(message)
+    this.name = "SyncDatasetError"
+  }
+}
+
 export async function syncDatasetLive(
   deviceId: string,
   capabilityKey: string,
@@ -153,7 +164,12 @@ export async function syncDatasetLive(
     body: JSON.stringify({ capability_key: capabilityKey }),
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error ?? "Failed to sync dataset")
+  if (!res.ok) {
+    const device = data.device
+      ? mapNetworkDeviceFromApi(data.device as NetworkDeviceApiRecord)
+      : undefined
+    throw new SyncDatasetError(data.error ?? "Failed to sync dataset", res.status, device)
+  }
   const payload = data as { device: NetworkDeviceApiRecord; row_count: number }
   return {
     device: mapNetworkDeviceFromApi(payload.device),

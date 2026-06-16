@@ -11,6 +11,7 @@ ConnectorAuthMethod = Literal[
 PollMode = Literal["interval", "on_demand"]
 ConnectorStatus = Literal["active", "draft"]
 DeviceCategory = Literal["firewall", "router", "switch"]
+RouterOsVersion = Literal["6", "7"]
 
 
 class DataConnectorBase(BaseModel):
@@ -26,6 +27,7 @@ class DataConnectorBase(BaseModel):
     poll_mode: PollMode = "interval"
     default_interval_minutes: Optional[int] = None
     parser_id: str = "custom-parser"
+    router_os_version: Optional[RouterOsVersion] = None
     status: ConnectorStatus = "draft"
 
 
@@ -46,6 +48,7 @@ class DataConnectorUpdate(BaseModel):
     poll_mode: Optional[PollMode] = None
     default_interval_minutes: Optional[int] = None
     parser_id: Optional[str] = None
+    router_os_version: Optional[RouterOsVersion] = None
     status: Optional[ConnectorStatus] = None
 
 
